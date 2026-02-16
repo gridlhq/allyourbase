@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/gridlhq/allyourbase/actions/workflows/ci.yml/badge.svg)](https://github.com/gridlhq/allyourbase/actions/workflows/ci.yml)
 [![Release](https://github.com/gridlhq/allyourbase/actions/workflows/release.yml/badge.svg)](https://github.com/gridlhq/allyourbase/releases)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Status: Beta](https://img.shields.io/badge/Status-Beta-orange)](https://github.com/gridlhq/allyourbase)
 
 Backend-as-a-Service for PostgreSQL. Single binary, zero config, auto-generated REST API + admin dashboard.
@@ -204,4 +204,4 @@ ayb uninstall
 
 ## License
 
-[Apache 2.0](LICENSE)
+[MIT](LICENSE)

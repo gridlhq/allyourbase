@@ -189,6 +189,6 @@ AYB keeps the single-binary simplicity. For development, `ayb start` runs its ow
 
 ## License
 
-AllYourBase is open source under the [Apache License 2.0](https://github.com/gridlhq/allyourbase/blob/main/LICENSE).
+AllYourBase is open source under the [MIT License](https://github.com/gridlhq/allyourbase/blob/main/LICENSE).
 
 </div>

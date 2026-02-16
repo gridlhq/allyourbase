@@ -46,4 +46,4 @@ release:
     owner: gridlhq
     name: allyourbase
   draft: false
-  prerelease: auto
+  prerelease: false
