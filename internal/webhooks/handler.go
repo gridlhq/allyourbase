@@ -79,7 +79,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	for i := range hooks {
 		resp[i] = toResponse(&hooks[i])
 	}
-	httputil.WriteJSON(w, http.StatusOK, resp)
+	httputil.WriteJSON(w, http.StatusOK, map[string]any{"items": resp})
 }
 
 func (h *Handler) handleGet(w http.ResponseWriter, r *http.Request) {

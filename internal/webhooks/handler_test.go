@@ -285,9 +285,9 @@ func TestListAfterCreate(t *testing.T) {
 	// Empty list.
 	w := doHandlerRequest(t, h.Routes(), "GET", "/", "")
 	testutil.Equal(t, http.StatusOK, w.Code)
-	var empty []any
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&empty))
-	testutil.Equal(t, 0, len(empty))
+	var emptyResp map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&emptyResp))
+	testutil.Equal(t, 0, len(emptyResp["items"].([]any)))
 
 	// Create two.
 	doHandlerRequest(t, h.Routes(), "POST", "/", `{"url":"http://example.com/a"}`)
@@ -295,9 +295,9 @@ func TestListAfterCreate(t *testing.T) {
 
 	w = doHandlerRequest(t, h.Routes(), "GET", "/", "")
 	testutil.Equal(t, http.StatusOK, w.Code)
-	var list []any
-	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&list))
-	testutil.Equal(t, 2, len(list))
+	var listResp map[string]any
+	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&listResp))
+	testutil.Equal(t, 2, len(listResp["items"].([]any)))
 }
 
 func TestUpdateSuccess(t *testing.T) {

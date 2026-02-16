@@ -371,17 +371,19 @@ func loadIndexes(ctx context.Context, pool *pgxpool.Pool, tables map[string]*Tab
 func loadFunctions(ctx context.Context, pool *pgxpool.Pool) (map[string]*Function, error) {
 	filter, args := schemaFilter("n", 1)
 
+	// Use proallargtypes/proargmodes when available (functions with OUT/VARIADIC params)
+	// to correctly identify parameter modes. Fall back to proargtypes for simple IN-only functions.
 	query := fmt.Sprintf(`
 		SELECT n.nspname                             AS func_schema,
 		       p.proname                             AS func_name,
 		       COALESCE(obj_description(p.oid, 'pg_proc'), '') AS func_comment,
 		       COALESCE(p.proargnames, '{}')         AS arg_names,
 		       COALESCE(
-		         (SELECT array_agg(format_type(t.oid, NULL) ORDER BY ord.n)
-		          FROM unnest(p.proargtypes) WITH ORDINALITY AS ord(typoid, n)
-		          JOIN pg_type t ON t.oid = ord.typoid),
+		         (SELECT array_agg(format_type(t, NULL) ORDER BY ord)
+		          FROM unnest(COALESCE(p.proallargtypes, p.proargtypes::oid[])) WITH ORDINALITY AS x(t, ord)),
 		         '{}'
-		       )                                     AS arg_types,
+		       )                                     AS all_arg_types,
+		       COALESCE(p.proargmodes::text[], '{}') AS arg_modes,
 		       format_type(p.prorettype, NULL)        AS return_type,
 		       p.proretset                           AS returns_set
 		FROM pg_proc p
@@ -402,40 +404,58 @@ func loadFunctions(ctx context.Context, pool *pgxpool.Pool) (map[string]*Functio
 		var (
 			funcSchema, funcName, funcComment string
 			argNames                          []string
-			argTypes                          []string
+			allArgTypes                       []string
+			argModes                          []string
 			returnType                        string
 			returnsSet                        bool
 		)
 		if err := rows.Scan(
 			&funcSchema, &funcName, &funcComment,
-			&argNames, &argTypes,
+			&argNames, &allArgTypes, &argModes,
 			&returnType, &returnsSet,
 		); err != nil {
 			return nil, fmt.Errorf("scanning function: %w", err)
 		}
 
-		params := make([]*FuncParam, len(argTypes))
-		for i, typeName := range argTypes {
+		// Build input parameters: filter to IN ('i'), INOUT ('b'), and VARIADIC ('v') modes.
+		// When argModes is empty, all params are IN (proargmodes is NULL for all-IN functions).
+		var params []*FuncParam
+		hasOutParams := false
+		pos := 0
+		for i, typeName := range allArgTypes {
+			mode := "i" // default to IN when proargmodes is NULL
+			if i < len(argModes) {
+				mode = argModes[i]
+			}
+
+			if mode == "o" || mode == "t" {
+				hasOutParams = hasOutParams || mode == "o"
+				continue // skip OUT and TABLE params
+			}
+
 			name := ""
 			if i < len(argNames) {
 				name = argNames[i]
 			}
-			params[i] = &FuncParam{
-				Name:     name,
-				Type:     typeName,
-				Position: i + 1,
-			}
+			pos++
+			params = append(params, &FuncParam{
+				Name:       name,
+				Type:       typeName,
+				Position:   pos,
+				IsVariadic: mode == "v",
+			})
 		}
 
 		key := funcSchema + "." + funcName
 		functions[key] = &Function{
-			Schema:     funcSchema,
-			Name:       funcName,
-			Comment:    funcComment,
-			Parameters: params,
-			ReturnType: returnType,
-			ReturnsSet: returnsSet,
-			IsVoid:     returnType == "void",
+			Schema:       funcSchema,
+			Name:         funcName,
+			Comment:      funcComment,
+			Parameters:   params,
+			ReturnType:   returnType,
+			ReturnsSet:   returnsSet,
+			IsVoid:       returnType == "void",
+			HasOutParams: hasOutParams,
 		}
 	}
 	return functions, rows.Err()

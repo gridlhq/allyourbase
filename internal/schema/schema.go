@@ -120,20 +120,22 @@ type Relationship struct {
 
 // Function represents a PostgreSQL function discoverable via RPC.
 type Function struct {
-	Schema     string      `json:"schema"`
-	Name       string      `json:"name"`
-	Comment    string      `json:"comment,omitempty"`
-	Parameters []*FuncParam `json:"parameters"`
-	ReturnType string      `json:"returnType"` // e.g. "integer", "SETOF record", "void"
-	ReturnsSet bool        `json:"returnsSet"`
-	IsVoid     bool        `json:"-"`
+	Schema       string       `json:"schema"`
+	Name         string       `json:"name"`
+	Comment      string       `json:"comment,omitempty"`
+	Parameters   []*FuncParam `json:"parameters"`
+	ReturnType   string       `json:"returnType"` // e.g. "integer", "SETOF record", "void"
+	ReturnsSet   bool         `json:"returnsSet"`
+	IsVoid       bool         `json:"-"`
+	HasOutParams bool         `json:"-"` // function has OUT parameters (use SELECT * FROM to unpack)
 }
 
 // FuncParam represents a parameter of a PostgreSQL function.
 type FuncParam struct {
-	Name     string `json:"name"`
-	Type     string `json:"type"`
-	Position int    `json:"position"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	Position   int    `json:"position"`
+	IsVariadic bool   `json:"isVariadic,omitempty"`
 }
 
 // ParamByName returns a parameter by name, or nil if not found.

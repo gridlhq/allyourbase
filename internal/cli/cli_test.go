@@ -308,8 +308,12 @@ func TestStopCommandStalePID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("aybPIDPath: %v", err)
 	}
+	// Ensure the directory exists (may not exist in CI).
+	os.MkdirAll(filepath.Dir(pidPath), 0755)
 	// Write a PID that doesn't exist (use a very high PID).
-	os.WriteFile(pidPath, []byte("9999999\n8090"), 0644)
+	if err := os.WriteFile(pidPath, []byte("9999999\n8090"), 0644); err != nil {
+		t.Fatalf("writing PID file: %v", err)
+	}
 	defer os.Remove(pidPath)
 
 	output := captureStdout(t, func() {

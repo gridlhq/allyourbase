@@ -58,15 +58,59 @@ func (w *Watcher) Start(ctx context.Context) error {
 		w.logger.Info("DDL event triggers installed, listening for schema changes")
 	}
 
-	// Initial schema load.
+	// For LISTEN/NOTIFY mode, establish the listener BEFORE the initial cache load
+	// so we don't miss any notifications that fire right after Ready() is signaled.
+	var listenerConn *pgx.Conn
+	if !w.pollMode {
+		conn, err := pgx.Connect(ctx, w.connString)
+		if err != nil {
+			w.logger.Warn("could not establish listener connection, falling back to polling",
+				"error", err)
+			w.pollMode = true
+		} else {
+			if _, err := conn.Exec(ctx, "LISTEN "+notifyChannel); err != nil {
+				conn.Close(ctx)
+				w.logger.Warn("LISTEN failed, falling back to polling", "error", err)
+				w.pollMode = true
+			} else {
+				listenerConn = conn
+				w.logger.Debug("listening on channel", "channel", notifyChannel)
+			}
+		}
+	}
+
+	// Initial schema load (signals Ready via CacheHolder).
 	if err := w.cache.Load(ctx); err != nil {
+		if listenerConn != nil {
+			listenerConn.Close(ctx)
+		}
 		return fmt.Errorf("initial schema load: %w", err)
 	}
-	w.initialLoad = true
 
 	// Start background listener/poller.
 	if w.pollMode {
 		return w.runPoller(ctx)
+	}
+	return w.runListenerWithConn(ctx, listenerConn)
+}
+
+// runListenerWithConn runs the notification loop using an already-established
+// LISTEN connection. On disconnect, reconnects automatically.
+func (w *Watcher) runListenerWithConn(ctx context.Context, conn *pgx.Conn) error {
+	// Run the notification loop with the pre-established connection.
+	err := w.notifyLoop(ctx, conn)
+	conn.Close(ctx)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
+	// On disconnect, fall into the reconnect loop.
+	w.logger.Warn("schema listener connection lost, reconnecting",
+		"error", err, "delay", reconnectDelay)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(reconnectDelay):
 	}
 	return w.runListener(ctx)
 }
@@ -103,13 +147,13 @@ func (w *Watcher) listenLoop(ctx context.Context) error {
 	w.logger.Debug("listening on channel", "channel", notifyChannel)
 
 	// On reconnect, do a full reload in case we missed notifications.
-	// Skip on the first connection — Start() already loaded the cache.
-	if w.initialLoad {
-		w.initialLoad = false
-	} else {
-		w.scheduleReload(ctx)
-	}
+	w.scheduleReload(ctx)
 
+	return w.notifyLoop(ctx, conn)
+}
+
+// notifyLoop waits for notifications on an established connection.
+func (w *Watcher) notifyLoop(ctx context.Context, conn *pgx.Conn) error {
 	for {
 		waitCtx, cancel := context.WithTimeout(ctx, listenTimeout)
 		notification, err := conn.WaitForNotification(waitCtx)

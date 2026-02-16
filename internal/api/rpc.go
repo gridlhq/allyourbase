@@ -128,7 +128,7 @@ func (h *Handler) resolveFunction(w http.ResponseWriter, r *http.Request) *schem
 }
 
 // buildRPCCall generates the SQL and args for calling a function.
-// For set-returning functions: SELECT * FROM schema.func($1, $2, ...)
+// For set-returning or OUT-param functions: SELECT * FROM schema.func($1, $2, ...)
 // For scalar/void functions: SELECT schema.func($1, $2, ...)
 func buildRPCCall(fn *schema.Function, args map[string]any) (string, []any, error) {
 	var queryArgs []any
@@ -147,14 +147,21 @@ func buildRPCCall(fn *schema.Function, args map[string]any) (string, []any, erro
 		}
 		queryArgs = append(queryArgs, coerceRPCArg(val, param.Type))
 		// Use explicit cast so pgx text-encodes the value and Postgres handles conversion.
-		placeholders[i] = fmt.Sprintf("$%d::%s", i+1, param.Type)
+		// VARIADIC params need the VARIADIC keyword so Postgres spreads the array.
+		if param.IsVariadic {
+			placeholders[i] = fmt.Sprintf("VARIADIC $%d::%s", i+1, param.Type)
+		} else {
+			placeholders[i] = fmt.Sprintf("$%d::%s", i+1, param.Type)
+		}
 	}
 
 	funcRef := quoteIdent(fn.Schema) + "." + quoteIdent(fn.Name)
 	argList := strings.Join(placeholders, ", ")
 
 	var query string
-	if fn.ReturnsSet {
+	// Use SELECT * FROM for set-returning functions, functions with OUT params,
+	// and record-returning functions so columns are unpacked into named fields.
+	if fn.ReturnsSet || fn.HasOutParams || fn.ReturnType == "record" {
 		query = fmt.Sprintf("SELECT * FROM %s(%s)", funcRef, argList)
 	} else {
 		query = fmt.Sprintf("SELECT %s(%s)", funcRef, argList)
