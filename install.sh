@@ -265,52 +265,53 @@ setup_path() {
       ;;
   esac
 
-  shell_name=$(basename "${SHELL:-/bin/sh}")
   export_line="export PATH=\"${INSTALL_DIR}:\$PATH\""
-
   profile_updated=false
 
-  case "$shell_name" in
-    bash)
-      for rc in "$HOME/.bashrc" "$HOME/.bash_profile"; do
-        if [ -f "$rc" ]; then
-          if ! grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
-            if printf '\n# AllYourBase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
-              profile_updated=true
-              info "Added to ${rc}"
-            else
-              warn "Could not write to ${rc} (permission denied)"
-            fi
-          fi
-          break
-        fi
-      done
-      ;;
-    zsh)
-      rc="$HOME/.zshrc"
-      if [ -f "$rc" ] || [ "$shell_name" = "zsh" ]; then
-        if ! grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
-          if printf '\n# AllYourBase\n%s\n' "$export_line" >> "${rc}" 2>/dev/null; then
-            profile_updated=true
-            info "Added to ${rc}"
-          else
-            warn "Could not write to ${rc} (permission denied)"
-          fi
-        fi
-      fi
-      ;;
-    fish)
-      fish_conf="${HOME}/.config/fish/config.fish"
-      fish_line="set -gx PATH ${INSTALL_DIR} \$PATH"
-      if [ -d "$(dirname "$fish_conf")" ]; then
-        if ! grep -qF "$INSTALL_DIR" "$fish_conf" 2>/dev/null; then
-          printf '\n# AllYourBase\n%s\n' "$fish_line" >> "$fish_conf"
+  # Update all detected shell configs, not just $SHELL.
+  # Users often have $SHELL set to one thing but use another interactively.
+
+  # bash
+  for rc in "$HOME/.bashrc" "$HOME/.bash_profile"; do
+    if [ -f "$rc" ]; then
+      if ! grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
+        if printf '\n# AllYourBase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
           profile_updated=true
-          info "Added to ${fish_conf}"
+          info "Added to ${rc}"
+        else
+          warn "Could not write to ${rc} (permission denied)"
         fi
       fi
-      ;;
-  esac
+      break
+    fi
+  done
+
+  # zsh
+  rc="$HOME/.zshrc"
+  if [ -f "$rc" ]; then
+    if ! grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
+      if printf '\n# AllYourBase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
+        profile_updated=true
+        info "Added to ${rc}"
+      else
+        warn "Could not write to ${rc} (permission denied)"
+      fi
+    fi
+  fi
+
+  # fish
+  fish_conf="${HOME}/.config/fish/config.fish"
+  fish_line="set -gx PATH ${INSTALL_DIR} \$PATH"
+  if [ -d "$(dirname "$fish_conf")" ]; then
+    if ! grep -qF "$INSTALL_DIR" "$fish_conf" 2>/dev/null; then
+      if printf '\n# AllYourBase\n%s\n' "$fish_line" >> "$fish_conf" 2>/dev/null; then
+        profile_updated=true
+        info "Added to ${fish_conf}"
+      else
+        warn "Could not write to ${fish_conf} (permission denied)"
+      fi
+    fi
+  fi
 
   if [ "$profile_updated" = "false" ]; then
     warn "Could not auto-update PATH. Add this to your shell profile:"
@@ -351,8 +352,7 @@ main() {
         ;;
       *)
         printf "\n"
-        printf "  ${YELLOW}Restart your terminal or run:${NC}\n"
-        printf "    source ~/.$(basename "${SHELL:-sh}")rc\n"
+        printf "  ${YELLOW}Restart your terminal to update your PATH.${NC}\n"
         ;;
     esac
   fi
