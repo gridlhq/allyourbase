@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"syscall"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
@@ -123,7 +122,7 @@ func runAdminResetPassword(cmd *cobra.Command, args []string) error {
 	os.Remove(resultPath)
 
 	// Send SIGUSR1 to trigger password regeneration.
-	if err := proc.Signal(syscall.SIGUSR1); err != nil {
+	if err := sendUSR1(proc); err != nil {
 		return fmt.Errorf("sending signal to AYB (pid %d): %w", pid, err)
 	}
 

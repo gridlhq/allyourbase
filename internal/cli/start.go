@@ -264,8 +264,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
-	usrCh := make(chan os.Signal, 1)
-	signal.Notify(usrCh, syscall.SIGUSR1)
+	usrCh := notifyUSR1()
 
 	ready := make(chan struct{})
 	errCh := make(chan error, 1)
