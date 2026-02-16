@@ -1,0 +1,26 @@
+package cli
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print AYB version",
+	Run: func(cmd *cobra.Command, args []string) {
+		jsonOut, _ := cmd.Flags().GetBool("json")
+		if jsonOut {
+			json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"version": buildVersion,
+				"commit":  buildCommit,
+				"date":    buildDate,
+			})
+			return
+		}
+		fmt.Printf("ayb %s (commit: %s, built: %s)\n", buildVersion, buildCommit, buildDate)
+	},
+}

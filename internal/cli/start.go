@@ -1,0 +1,654 @@
+package cli
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/fbmigrate"
+	"github.com/allyourbase/ayb/internal/mailer"
+	"github.com/allyourbase/ayb/internal/migrate"
+	"github.com/allyourbase/ayb/internal/migrations"
+	"github.com/allyourbase/ayb/internal/pbmigrate"
+	"github.com/allyourbase/ayb/internal/sbmigrate"
+	"github.com/allyourbase/ayb/internal/pgmanager"
+	"github.com/allyourbase/ayb/internal/postgres"
+	"github.com/allyourbase/ayb/internal/schema"
+	"github.com/allyourbase/ayb/internal/server"
+	"github.com/allyourbase/ayb/internal/storage"
+	"github.com/spf13/cobra"
+)
+
+var startCmd = &cobra.Command{
+	Use:   "start",
+	Short: "Start the AYB server",
+	Long: `Start the AllYourBase server. If no database URL is configured,
+AYB starts an embedded PostgreSQL instance automatically.
+
+With external database:
+  ayb start --database-url postgresql://user:pass@localhost:5432/mydb
+
+Migrate and start from PocketBase (single command):
+  ayb start --from ./pb_data
+
+Migrate and start from Supabase:
+  ayb start --from postgres://db.xxx.supabase.co:5432/postgres`,
+	RunE: runStart,
+}
+
+func init() {
+	startCmd.Flags().String("database-url", "", "PostgreSQL connection URL")
+	startCmd.Flags().Int("port", 0, "Server port (default 8090)")
+	startCmd.Flags().String("host", "", "Server host (default 0.0.0.0)")
+	startCmd.Flags().String("config", "", "Path to ayb.toml config file")
+	startCmd.Flags().String("from", "", "Migrate from another platform and start (path to pb_data, or postgres:// URL)")
+}
+
+func runStart(cmd *cobra.Command, args []string) error {
+	// Collect CLI flag overrides.
+	flags := make(map[string]string)
+	if v, _ := cmd.Flags().GetString("database-url"); v != "" {
+		flags["database-url"] = v
+	}
+	if v, _ := cmd.Flags().GetInt("port"); v != 0 {
+		flags["port"] = fmt.Sprintf("%d", v)
+	}
+	if v, _ := cmd.Flags().GetString("host"); v != "" {
+		flags["host"] = v
+	}
+
+	configPath, _ := cmd.Flags().GetString("config")
+
+	// Load config (defaults → file → env → flags).
+	cfg, err := config.Load(configPath, flags)
+	if err != nil {
+		return fmt.Errorf("loading config: %w", err)
+	}
+
+	// Auto-generate admin password if not set.
+	generatedPassword := ""
+	if cfg.Admin.Enabled && cfg.Admin.Password == "" {
+		b := make([]byte, 16)
+		if _, err := rand.Read(b); err != nil {
+			return fmt.Errorf("generating admin password: %w", err)
+		}
+		generatedPassword = hex.EncodeToString(b)
+		cfg.Admin.Password = generatedPassword
+	}
+
+	// Set up logger.
+	logger := newLogger(cfg.Logging.Level, cfg.Logging.Format)
+
+	// Auto-generate config file if it doesn't exist.
+	if configPath == "" {
+		if _, err := os.Stat("ayb.toml"); os.IsNotExist(err) {
+			if err := config.GenerateDefault("ayb.toml"); err != nil {
+				logger.Warn("could not generate default ayb.toml", "error", err)
+			} else {
+				logger.Info("generated default ayb.toml")
+			}
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start embedded PostgreSQL if no database URL is configured.
+	var pgMgr *pgmanager.Manager
+	if cfg.Database.URL == "" {
+		logger.Info("no database URL configured, starting embedded PostgreSQL")
+		pgMgr = pgmanager.New(pgmanager.Config{
+			Port:    uint32(cfg.Database.EmbeddedPort),
+			DataDir: cfg.Database.EmbeddedDataDir,
+			Logger:  logger,
+		})
+		connURL, err := pgMgr.Start(ctx)
+		if err != nil {
+			return fmt.Errorf("starting embedded postgres: %w", err)
+		}
+		cfg.Database.URL = connURL
+	}
+
+	// Connect to PostgreSQL.
+	pool, err := postgres.New(ctx, postgres.Config{
+		URL:             cfg.Database.URL,
+		MaxConns:        int32(cfg.Database.MaxConns),
+		MinConns:        int32(cfg.Database.MinConns),
+		HealthCheckSecs: cfg.Database.HealthCheckSecs,
+	}, logger)
+	if err != nil {
+		return fmt.Errorf("connecting to database: %w", err)
+	}
+	defer pool.Close()
+
+	// Run system migrations.
+	migRunner := migrations.NewRunner(pool.DB(), logger)
+	if err := migRunner.Bootstrap(ctx); err != nil {
+		return fmt.Errorf("bootstrapping migrations: %w", err)
+	}
+	applied, err := migRunner.Run(ctx)
+	if err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+	if applied > 0 {
+		logger.Info("applied system migrations", "count", applied)
+	}
+
+	// Run --from migration if specified (after system migrations, before user migrations).
+	fromValue, _ := cmd.Flags().GetString("from")
+	if fromValue != "" {
+		if err := runFromMigration(ctx, fromValue, cfg.Database.URL, logger); err != nil {
+			if pgMgr != nil {
+				if stopErr := pgMgr.Stop(); stopErr != nil {
+					logger.Error("error stopping embedded postgres", "error", stopErr)
+				}
+			}
+			return fmt.Errorf("migration failed: %w", err)
+		}
+	}
+
+	// Apply user migrations if the directory exists.
+	if cfg.Database.MigrationsDir != "" {
+		if _, err := os.Stat(cfg.Database.MigrationsDir); err == nil {
+			userRunner := migrations.NewUserRunner(pool.DB(), cfg.Database.MigrationsDir, logger)
+			if err := userRunner.Bootstrap(ctx); err != nil {
+				return fmt.Errorf("bootstrapping user migrations: %w", err)
+			}
+			userApplied, err := userRunner.Up(ctx)
+			if err != nil {
+				return fmt.Errorf("running user migrations: %w", err)
+			}
+			if userApplied > 0 {
+				logger.Info("applied user migrations", "count", userApplied)
+			}
+		}
+	}
+
+	// Initialize schema cache and start watcher.
+	schemaCache := schema.NewCacheHolder(pool.DB(), logger)
+	watcher := schema.NewWatcher(schemaCache, pool.DB(), cfg.Database.URL, logger)
+
+	watcherCtx, watcherCancel := context.WithCancel(ctx)
+	defer watcherCancel()
+
+	watcherErrCh := make(chan error, 1)
+	go func() {
+		watcherErrCh <- watcher.Start(watcherCtx)
+	}()
+
+	// Wait for initial schema load before starting HTTP server.
+	// The watcher's Start() loads the cache synchronously, then enters
+	// the background listen/poll loop. We give it a moment to complete.
+	select {
+	case err := <-watcherErrCh:
+		// Watcher returned early — this means initial load failed.
+		return fmt.Errorf("schema watcher: %w", err)
+	case <-schemaCache.Ready():
+		logger.Info("schema cache ready")
+	}
+
+	// Conditionally create auth service.
+	var authSvc *auth.Service
+	if cfg.Auth.Enabled {
+		authSvc = auth.NewService(
+			pool.DB(),
+			cfg.Auth.JWTSecret,
+			time.Duration(cfg.Auth.TokenDuration)*time.Second,
+			time.Duration(cfg.Auth.RefreshTokenDuration)*time.Second,
+			cfg.Auth.MinPasswordLength,
+			logger,
+		)
+
+		// Build mailer and inject into auth service.
+		m := buildMailer(cfg, logger)
+		baseURL := fmt.Sprintf("http://%s/api", cfg.Address())
+		authSvc.SetMailer(m, cfg.Email.FromName, baseURL)
+		logger.Info("auth enabled", "email_backend", cfg.Email.Backend)
+	}
+
+	// Conditionally create storage service.
+	var storageSvc *storage.Service
+	if cfg.Storage.Enabled {
+		var storageBackend storage.Backend
+		switch cfg.Storage.Backend {
+		case "s3":
+			s3b, err := storage.NewS3Backend(ctx, storage.S3Config{
+				Endpoint:  cfg.Storage.S3Endpoint,
+				Bucket:    cfg.Storage.S3Bucket,
+				Region:    cfg.Storage.S3Region,
+				AccessKey: cfg.Storage.S3AccessKey,
+				SecretKey: cfg.Storage.S3SecretKey,
+				UseSSL:    cfg.Storage.S3UseSSL,
+			})
+			if err != nil {
+				return fmt.Errorf("initializing S3 storage backend: %w", err)
+			}
+			storageBackend = s3b
+			logger.Info("storage enabled", "backend", "s3", "endpoint", cfg.Storage.S3Endpoint, "bucket", cfg.Storage.S3Bucket)
+		default:
+			lb, err := storage.NewLocalBackend(cfg.Storage.LocalPath)
+			if err != nil {
+				return fmt.Errorf("initializing local storage backend: %w", err)
+			}
+			storageBackend = lb
+			logger.Info("storage enabled", "backend", "local", "path", cfg.Storage.LocalPath)
+		}
+		signKey := cfg.Auth.JWTSecret
+		if signKey == "" {
+			b := make([]byte, 32)
+			if _, err := rand.Read(b); err != nil {
+				return fmt.Errorf("generating storage sign key: %w", err)
+			}
+			signKey = hex.EncodeToString(b)
+			logger.Info("generated random storage sign key (signed URLs will not survive restarts)")
+		}
+		storageSvc = storage.NewService(pool.DB(), storageBackend, signKey, logger)
+	}
+
+	// Create and start HTTP server.
+	srv := server.New(cfg, logger, schemaCache, pool.DB(), authSvc, storageSvc)
+
+	// Graceful shutdown on SIGTERM/SIGINT, password reset on SIGUSR1.
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	usrCh := make(chan os.Signal, 1)
+	signal.Notify(usrCh, syscall.SIGUSR1)
+
+	ready := make(chan struct{})
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- srv.StartWithReady(ready)
+	}()
+
+	// Wait for port to be bound before printing banner.
+	select {
+	case <-ready:
+		// Write PID file so `ayb stop` and `ayb status` can find us.
+		if pidPath, err := aybPIDPath(); err == nil {
+			_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n%d", os.Getpid(), cfg.Server.Port)), 0o644)
+			defer os.Remove(pidPath)
+		}
+		printBanner(cfg, pgMgr != nil, generatedPassword)
+
+		// Handle SIGUSR1 for password reset in background.
+		go func() {
+			for range usrCh {
+				newPw, err := srv.ResetAdminPassword()
+				if err != nil {
+					logger.Error("password reset failed", "error", err)
+					continue
+				}
+				// Write result file so the CLI command can read it.
+				if resultPath, err := aybResetResultPath(); err == nil {
+					_ = os.WriteFile(resultPath, []byte(newPw), 0o600)
+				}
+				fmt.Fprintf(os.Stderr, "\n  Admin password reset: %s\n\n", newPw)
+			}
+		}()
+	case err := <-errCh:
+		if pgMgr != nil {
+			if stopErr := pgMgr.Stop(); stopErr != nil {
+				logger.Error("error stopping embedded postgres", "error", stopErr)
+			}
+		}
+		return err
+	}
+
+	select {
+	case err := <-errCh:
+		if pgMgr != nil {
+			if stopErr := pgMgr.Stop(); stopErr != nil {
+				logger.Error("error stopping embedded postgres", "error", stopErr)
+			}
+		}
+		return err
+	case sig := <-sigCh:
+		logger.Info("received signal, shutting down", "signal", sig)
+		watcherCancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Error("shutdown error", "error", err)
+		}
+		if pgMgr != nil {
+			if stopErr := pgMgr.Stop(); stopErr != nil {
+				logger.Error("error stopping embedded postgres", "error", stopErr)
+			}
+		}
+		return nil
+	}
+}
+
+// aybPIDPath returns the path to the AYB server PID file (~/.ayb/ayb.pid).
+func aybPIDPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ayb", "ayb.pid"), nil
+}
+
+// aybResetResultPath returns the path for the password reset result file (~/.ayb/.pw_reset_result).
+func aybResetResultPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ayb", ".pw_reset_result"), nil
+}
+
+// readAYBPID reads the PID and port from the AYB PID file.
+// Returns pid, port, error. Port may be 0 if the file uses the old format.
+func readAYBPID() (int, int, error) {
+	pidPath, err := aybPIDPath()
+	if err != nil {
+		return 0, 0, err
+	}
+	data, err := os.ReadFile(pidPath)
+	if err != nil {
+		return 0, 0, err
+	}
+	lines := strings.SplitN(strings.TrimSpace(string(data)), "\n", 2)
+	if len(lines) == 0 || lines[0] == "" {
+		return 0, 0, fmt.Errorf("empty pid file")
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(lines[0]))
+	if err != nil {
+		return 0, 0, fmt.Errorf("parsing pid: %w", err)
+	}
+	var port int
+	if len(lines) > 1 {
+		port, _ = strconv.Atoi(strings.TrimSpace(lines[1]))
+	}
+	return pid, port, nil
+}
+
+func buildMailer(cfg *config.Config, logger *slog.Logger) mailer.Mailer {
+	switch cfg.Email.Backend {
+	case "smtp":
+		port := cfg.Email.SMTP.Port
+		if port == 0 {
+			port = 587
+		}
+		return mailer.NewSMTPMailer(mailer.SMTPConfig{
+			Host:       cfg.Email.SMTP.Host,
+			Port:       port,
+			Username:   cfg.Email.SMTP.Username,
+			Password:   cfg.Email.SMTP.Password,
+			From:       cfg.Email.From,
+			FromName:   cfg.Email.FromName,
+			TLS:        cfg.Email.SMTP.TLS,
+			AuthMethod: cfg.Email.SMTP.AuthMethod,
+		})
+	case "webhook":
+		timeout := time.Duration(cfg.Email.Webhook.Timeout) * time.Second
+		if timeout == 0 {
+			timeout = 10 * time.Second
+		}
+		return mailer.NewWebhookMailer(mailer.WebhookConfig{
+			URL:     cfg.Email.Webhook.URL,
+			Secret:  cfg.Email.Webhook.Secret,
+			Timeout: timeout,
+		})
+	default:
+		return mailer.NewLogMailer(logger)
+	}
+}
+
+func newLogger(level, format string) *slog.Logger {
+	var lvl slog.Level
+	switch level {
+	case "debug":
+		lvl = slog.LevelDebug
+	case "warn":
+		lvl = slog.LevelWarn
+	case "error":
+		lvl = slog.LevelError
+	default:
+		lvl = slog.LevelInfo
+	}
+
+	opts := &slog.HandlerOptions{Level: lvl}
+
+	var handler slog.Handler
+	if format == "text" {
+		handler = slog.NewTextHandler(os.Stderr, opts)
+	} else {
+		handler = slog.NewJSONHandler(os.Stderr, opts)
+	}
+
+	return slog.New(handler)
+}
+
+// printBanner writes a human-readable startup summary to stderr.
+// This is separate from structured logging and designed for first-time users.
+func printBanner(cfg *config.Config, embeddedPG bool, generatedPassword string) {
+	printBannerTo(os.Stderr, cfg, embeddedPG, colorEnabled(), generatedPassword)
+}
+
+// printBannerTo writes the banner to w. Extracted for testing.
+func printBannerTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword string) {
+	addr := cfg.Address()
+	apiURL := fmt.Sprintf("http://%s/api", addr)
+
+	dbMode := "external"
+	if embeddedPG {
+		dbMode = "embedded"
+	}
+
+	// Show clean semver in banner. Non-release builds (e.g. "v0.1.0-43-ge534c04-dirty")
+	// get trimmed to "0.1.0-dev". Release builds (e.g. "v0.1.0") show "0.1.0".
+	// Full version is always available via `ayb version`.
+	ver := bannerVersion(buildVersion)
+
+	// Pad labels before colorizing so ANSI codes don't break alignment.
+	padLabel := func(label string, width int) string {
+		return bold(fmt.Sprintf("%-*s", width, label), useColor)
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", boldCyan(fmt.Sprintf("AllYourBase v%s", ver), useColor))
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s %s\n", padLabel("API:", 10), cyan(apiURL, useColor))
+	if cfg.Admin.Enabled {
+		adminURL := fmt.Sprintf("http://%s%s", addr, cfg.Admin.Path)
+		fmt.Fprintf(w, "  %s %s\n", padLabel("Admin:", 10), cyan(adminURL, useColor))
+	}
+	fmt.Fprintf(w, "  %s %s\n", padLabel("Database:", 10), dbMode)
+	if cfg.Auth.MinPasswordLength > 0 && cfg.Auth.MinPasswordLength < 8 {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %s\n", yellow(fmt.Sprintf(
+			"WARNING: min_password_length is %d (recommended: 8+). Not suitable for production.",
+			cfg.Auth.MinPasswordLength), useColor))
+	}
+	if cfg.Admin.Enabled && generatedPassword != "" {
+		fmt.Fprintln(w)
+		fmt.Fprintf(w, "  %s  %s\n", bold("Admin password:", useColor), boldGreen(generatedPassword, useColor))
+		fmt.Fprintf(w, "  %s\n", dim("To reset: ayb admin reset-password", useColor))
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s %s\n", padLabel("Docs:", 10), dim("https://allyourbase.io/guide/quickstart", useColor))
+
+	// Print next-step hints for new users (no leading whitespace for easy copy-paste).
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", dim("Try:", useColor))
+	fmt.Fprintf(w, "%s\n", green(`./ayb sql "CREATE TABLE posts (id serial PRIMARY KEY, title text)"`, useColor))
+	fmt.Fprintf(w, "%s\n", green(fmt.Sprintf("curl %s/collections/posts", apiURL), useColor))
+	fmt.Fprintln(w)
+}
+
+// bannerVersion extracts a clean semver string for the startup banner.
+// Release builds (e.g. "v0.1.0") → "0.1.0".
+// Dev builds (e.g. "v0.1.0-43-ge534c04-dirty") → "0.1.0-dev".
+// Full version is always available via `ayb version`.
+func bannerVersion(raw string) string {
+	v := strings.TrimPrefix(raw, "v")
+	// A bare semver tag (e.g. "0.1.0") has no hyphen after the patch number,
+	// or has a pre-release label like "0.1.0-beta.1". Git-describe appends
+	// "-<N>-g<hash>" when commits exist past the tag. Detect that pattern.
+	parts := strings.SplitN(v, "-", 2)
+	if len(parts) == 1 {
+		return v // clean tag, e.g. "0.1.0"
+	}
+	// If the first segment after the hyphen is a number, it's a git-describe
+	// commit count (e.g. "0.1.0-43-ge534c04"), not a semver pre-release.
+	if len(parts[1]) > 0 && parts[1][0] >= '0' && parts[1][0] <= '9' {
+		return parts[0] + "-dev"
+	}
+	return v // pre-release tag like "0.1.0-beta.1"
+}
+
+// runFromMigration handles the --from flag on ayb start.
+// It auto-detects the source type, runs pre-flight analysis, migrates data,
+// and prints a validation summary.
+func runFromMigration(ctx context.Context, from string, databaseURL string, logger *slog.Logger) error {
+	sourceType := migrate.DetectSource(from)
+
+	switch sourceType {
+	case migrate.SourcePocketBase:
+		return runFromPocketBase(ctx, from, databaseURL, logger)
+	case migrate.SourceSupabase:
+		return runFromSupabase(ctx, from, databaseURL, logger)
+	case migrate.SourceFirebase:
+		return runFromFirebase(ctx, from, databaseURL, logger)
+	case migrate.SourcePostgres:
+		logger.Info("detected generic PostgreSQL source", "url", from)
+		return fmt.Errorf("generic PostgreSQL --from migration is not yet implemented")
+	default:
+		return fmt.Errorf("could not detect migration source type from %q (expected: path to pb_data, postgres:// URL, or firebase:// URL)", from)
+	}
+}
+
+// runFromPocketBase runs PocketBase migration as part of ayb start --from.
+func runFromPocketBase(ctx context.Context, sourcePath string, databaseURL string, logger *slog.Logger) error {
+	logger.Info("detected PocketBase source", "path", sourcePath)
+
+	// Pre-flight analysis
+	report, err := pbmigrate.Analyze(sourcePath)
+	if err != nil {
+		return fmt.Errorf("analysis failed: %w", err)
+	}
+
+	report.PrintReport(os.Stderr)
+
+	// Run migration with CLI progress reporter
+	progress := migrate.NewCLIReporter(os.Stderr)
+
+	fmt.Fprintf(os.Stderr, "  Migrating %s -> AYB...\n\n", report.SourceType)
+
+	migrator, err := pbmigrate.NewMigrator(pbmigrate.MigrationOptions{
+		SourcePath:  sourcePath,
+		DatabaseURL: databaseURL,
+		Progress:    progress,
+	})
+	if err != nil {
+		return err
+	}
+	defer migrator.Close()
+
+	stats, err := migrator.Migrate(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Validation summary
+	summary := pbmigrate.BuildValidationSummary(report, stats)
+	summary.PrintSummary(os.Stderr)
+
+	return nil
+}
+
+// runFromSupabase runs Supabase migration as part of ayb start --from.
+func runFromSupabase(ctx context.Context, sourceURL string, databaseURL string, logger *slog.Logger) error {
+	logger.Info("detected Supabase source", "url", sourceURL)
+
+	progress := migrate.NewCLIReporter(os.Stderr)
+
+	migrator, err := sbmigrate.NewMigrator(sbmigrate.MigrationOptions{
+		SourceURL: sourceURL,
+		TargetURL: databaseURL,
+		Progress:  progress,
+	})
+	if err != nil {
+		return err
+	}
+	defer migrator.Close()
+
+	// Pre-flight analysis.
+	report, err := migrator.Analyze(ctx)
+	if err != nil {
+		return fmt.Errorf("analysis failed: %w", err)
+	}
+
+	report.PrintReport(os.Stderr)
+
+	fmt.Fprintf(os.Stderr, "  Migrating %s -> AYB...\n\n", report.SourceType)
+
+	stats, err := migrator.Migrate(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Validation summary.
+	summary := sbmigrate.BuildValidationSummary(report, stats)
+	summary.PrintSummary(os.Stderr)
+
+	return nil
+}
+
+// runFromFirebase runs Firebase migration as part of ayb start --from.
+func runFromFirebase(ctx context.Context, from string, databaseURL string, logger *slog.Logger) error {
+	logger.Info("detected Firebase source", "from", from)
+
+	progress := migrate.NewCLIReporter(os.Stderr)
+
+	// Determine if --from is a .json auth export or a firebase:// URL.
+	opts := fbmigrate.MigrationOptions{
+		DatabaseURL: databaseURL,
+		Progress:    progress,
+	}
+	if strings.HasSuffix(from, ".json") {
+		opts.AuthExportPath = from
+	} else {
+		// firebase:// URL — not yet supported for auto-detection of export paths.
+		return fmt.Errorf("Firebase --from requires a path to a .json auth export file")
+	}
+
+	migrator, err := fbmigrate.NewMigrator(opts)
+	if err != nil {
+		return err
+	}
+	defer migrator.Close()
+
+	// Pre-flight analysis.
+	report, err := migrator.Analyze(ctx)
+	if err != nil {
+		return fmt.Errorf("analysis failed: %w", err)
+	}
+
+	report.PrintReport(os.Stderr)
+
+	fmt.Fprintf(os.Stderr, "  Migrating %s -> AYB...\n\n", report.SourceType)
+
+	stats, err := migrator.Migrate(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Validation summary.
+	summary := fbmigrate.BuildValidationSummary(report, stats)
+	summary.PrintSummary(os.Stderr)
+
+	return nil
+}
