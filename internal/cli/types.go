@@ -59,7 +59,7 @@ func runTypesTypeScript(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	logger := newLogger("error", "json")
+	logger, _ := newLogger("error", "json")
 
 	pool, err := postgres.New(ctx, postgres.Config{
 		URL:      dbURL,

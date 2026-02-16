@@ -33,7 +33,8 @@ Get started (embedded Postgres, zero config):
 
 Or with an external database:
   ayb start --database-url postgresql://user:pass@localhost:5432/mydb`,
-	SilenceUsage: true,
+	SilenceUsage:  true,
+	SilenceErrors: true,
 }
 
 func init() {

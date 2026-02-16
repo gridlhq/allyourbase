@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -88,8 +89,26 @@ func runStart(cmd *cobra.Command, args []string) error {
 		cfg.Admin.Password = generatedPassword
 	}
 
-	// Set up logger.
-	logger := newLogger(cfg.Logging.Level, cfg.Logging.Format)
+	// Detect interactive terminal for pretty startup output.
+	isTTY := colorEnabled()
+	sp := newStartupProgress(os.Stderr, isTTY, isTTY)
+
+	// Set up logger. In TTY mode, suppress INFO during startup
+	// (pretty progress lines replace them). Level is restored after server starts.
+	logger, logLevel := newLogger(cfg.Logging.Level, cfg.Logging.Format)
+	if isTTY {
+		logLevel.Set(slog.LevelWarn)
+	}
+
+	// Show startup header.
+	sp.header(bannerVersion(buildVersion))
+
+	// Early port check: fail fast before expensive startup work.
+	if ln, err := net.Listen("tcp", cfg.Address()); err != nil {
+		return portError(cfg.Server.Port, err)
+	} else {
+		ln.Close()
+	}
 
 	// Auto-generate config file if it doesn't exist.
 	if configPath == "" {
@@ -108,6 +127,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Start embedded PostgreSQL if no database URL is configured.
 	var pgMgr *pgmanager.Manager
 	if cfg.Database.URL == "" {
+		sp.step("Starting embedded PostgreSQL...")
 		logger.Info("no database URL configured, starting embedded PostgreSQL")
 		pgMgr = pgmanager.New(pgmanager.Config{
 			Port:    uint32(cfg.Database.EmbeddedPort),
@@ -116,12 +136,15 @@ func runStart(cmd *cobra.Command, args []string) error {
 		})
 		connURL, err := pgMgr.Start(ctx)
 		if err != nil {
+			sp.fail()
 			return fmt.Errorf("starting embedded postgres: %w", err)
 		}
 		cfg.Database.URL = connURL
+		sp.done()
 	}
 
 	// Connect to PostgreSQL.
+	sp.step("Connecting to database...")
 	pool, err := postgres.New(ctx, postgres.Config{
 		URL:             cfg.Database.URL,
 		MaxConns:        int32(cfg.Database.MaxConns),
@@ -129,9 +152,14 @@ func runStart(cmd *cobra.Command, args []string) error {
 		HealthCheckSecs: cfg.Database.HealthCheckSecs,
 	}, logger)
 	if err != nil {
+		sp.fail()
+		if pgMgr != nil {
+			_ = pgMgr.Stop()
+		}
 		return fmt.Errorf("connecting to database: %w", err)
 	}
 	defer pool.Close()
+	sp.done()
 
 	// Run system migrations.
 	migRunner := migrations.NewRunner(pool.DB(), logger)
@@ -177,6 +205,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize schema cache and start watcher.
+	sp.step("Loading schema...")
 	schemaCache := schema.NewCacheHolder(pool.DB(), logger)
 	watcher := schema.NewWatcher(schemaCache, pool.DB(), cfg.Database.URL, logger)
 
@@ -189,13 +218,12 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}()
 
 	// Wait for initial schema load before starting HTTP server.
-	// The watcher's Start() loads the cache synchronously, then enters
-	// the background listen/poll loop. We give it a moment to complete.
 	select {
 	case err := <-watcherErrCh:
-		// Watcher returned early — this means initial load failed.
+		sp.fail()
 		return fmt.Errorf("schema watcher: %w", err)
 	case <-schemaCache.Ready():
+		sp.done()
 		logger.Info("schema cache ready")
 	}
 
@@ -258,6 +286,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create and start HTTP server.
+	sp.step("Starting server...")
 	srv := server.New(cfg, logger, schemaCache, pool.DB(), authSvc, storageSvc)
 
 	// Graceful shutdown on SIGTERM/SIGINT, password reset on SIGUSR1.
@@ -275,12 +304,26 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Wait for port to be bound before printing banner.
 	select {
 	case <-ready:
+		sp.done()
+
+		// Restore configured log level for runtime (request logging, etc.).
+		if isTTY {
+			logLevel.Set(parseSlogLevel(cfg.Logging.Level))
+		}
+
 		// Write PID file so `ayb stop` and `ayb status` can find us.
 		if pidPath, err := aybPIDPath(); err == nil {
 			_ = os.WriteFile(pidPath, []byte(fmt.Sprintf("%d\n%d", os.Getpid(), cfg.Server.Port)), 0o644)
 			defer os.Remove(pidPath)
 		}
-		printBanner(cfg, pgMgr != nil, generatedPassword)
+
+		// In TTY mode the header was already printed; show just the body.
+		// In non-TTY mode show the full banner (header + body).
+		if isTTY {
+			printBannerBodyTo(os.Stderr, cfg, pgMgr != nil, true, generatedPassword)
+		} else {
+			printBanner(cfg, pgMgr != nil, generatedPassword)
+		}
 
 		// Handle SIGUSR1 for password reset in background.
 		go func() {
@@ -298,12 +341,13 @@ func runStart(cmd *cobra.Command, args []string) error {
 			}
 		}()
 	case err := <-errCh:
+		sp.fail()
 		if pgMgr != nil {
 			if stopErr := pgMgr.Stop(); stopErr != nil {
 				logger.Error("error stopping embedded postgres", "error", stopErr)
 			}
 		}
-		return err
+		return portError(cfg.Server.Port, err)
 	}
 
 	select {
@@ -405,20 +449,11 @@ func buildMailer(cfg *config.Config, logger *slog.Logger) mailer.Mailer {
 	}
 }
 
-func newLogger(level, format string) *slog.Logger {
-	var lvl slog.Level
-	switch level {
-	case "debug":
-		lvl = slog.LevelDebug
-	case "warn":
-		lvl = slog.LevelWarn
-	case "error":
-		lvl = slog.LevelError
-	default:
-		lvl = slog.LevelInfo
-	}
+func newLogger(level, format string) (*slog.Logger, *slog.LevelVar) {
+	var lvlVar slog.LevelVar
+	lvlVar.Set(parseSlogLevel(level))
 
-	opts := &slog.HandlerOptions{Level: lvl}
+	opts := &slog.HandlerOptions{Level: &lvlVar}
 
 	var handler slog.Handler
 	if format == "text" {
@@ -427,7 +462,68 @@ func newLogger(level, format string) *slog.Logger {
 		handler = slog.NewJSONHandler(os.Stderr, opts)
 	}
 
-	return slog.New(handler)
+	return slog.New(handler), &lvlVar
+}
+
+func parseSlogLevel(level string) slog.Level {
+	switch level {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// startupProgress provides human-readable startup steps for interactive terminals.
+// In non-TTY mode (CI, piped output) all methods are no-ops.
+type startupProgress struct {
+	w        io.Writer
+	active   bool
+	useColor bool
+}
+
+func newStartupProgress(w io.Writer, active bool, useColor bool) *startupProgress {
+	return &startupProgress{w: w, active: active, useColor: useColor}
+}
+
+func (sp *startupProgress) header(version string) {
+	if !sp.active {
+		return
+	}
+	fmt.Fprintf(sp.w, "\n  %s\n\n", boldCyan(fmt.Sprintf("AllYourBase v%s", version), sp.useColor))
+}
+
+func (sp *startupProgress) step(msg string) {
+	if !sp.active {
+		return
+	}
+	fmt.Fprintf(sp.w, "  %s", msg)
+}
+
+func (sp *startupProgress) done() {
+	if !sp.active {
+		return
+	}
+	fmt.Fprintf(sp.w, " %s\n", green("✓", sp.useColor))
+}
+
+func (sp *startupProgress) fail() {
+	if !sp.active {
+		return
+	}
+	fmt.Fprintf(sp.w, " %s\n", yellow("✗", sp.useColor))
+}
+
+// portError wraps common listen errors with actionable suggestions.
+func portError(port int, err error) error {
+	if strings.Contains(err.Error(), "address already in use") {
+		return fmt.Errorf("port %d is already in use\n\n  Try:\n    ayb start --port %d     # use a different port\n    ayb stop                # stop the running server", port, port+1)
+	}
+	return err
 }
 
 // printBanner writes a human-readable startup summary to stderr.
@@ -436,8 +532,17 @@ func printBanner(cfg *config.Config, embeddedPG bool, generatedPassword string) 
 	printBannerTo(os.Stderr, cfg, embeddedPG, colorEnabled(), generatedPassword)
 }
 
-// printBannerTo writes the banner to w. Extracted for testing.
+// printBannerTo writes the full banner (header + body) to w. Extracted for testing.
 func printBannerTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword string) {
+	ver := bannerVersion(buildVersion)
+	fmt.Fprintln(w)
+	fmt.Fprintf(w, "  %s\n", boldCyan(fmt.Sprintf("AllYourBase v%s", ver), useColor))
+	printBannerBodyTo(w, cfg, embeddedPG, useColor, generatedPassword)
+}
+
+// printBannerBodyTo writes everything after the header (URLs, hints, etc.).
+// Used by TTY mode where the header is shown early during startup progress.
+func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword string) {
 	addr := cfg.Address()
 	apiURL := fmt.Sprintf("http://%s/api", addr)
 
@@ -446,18 +551,11 @@ func printBannerTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bo
 		dbMode = "embedded"
 	}
 
-	// Show clean semver in banner. Non-release builds (e.g. "v0.1.0-43-ge534c04-dirty")
-	// get trimmed to "0.1.0-dev". Release builds (e.g. "v0.1.0") show "0.1.0".
-	// Full version is always available via `ayb version`.
-	ver := bannerVersion(buildVersion)
-
 	// Pad labels before colorizing so ANSI codes don't break alignment.
 	padLabel := func(label string, width int) string {
 		return bold(fmt.Sprintf("%-*s", width, label), useColor)
 	}
 
-	fmt.Fprintln(w)
-	fmt.Fprintf(w, "  %s\n", boldCyan(fmt.Sprintf("AllYourBase v%s", ver), useColor))
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s %s\n", padLabel("API:", 10), cyan(apiURL, useColor))
 	if cfg.Admin.Enabled {

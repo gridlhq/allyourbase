@@ -2,6 +2,8 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,6 +31,18 @@ func TestSetVersion(t *testing.T) {
 // resetJSONFlag ensures the persistent --json flag is reset between tests.
 func resetJSONFlag() {
 	rootCmd.PersistentFlags().Set("json", "false")
+}
+
+// freePort allocates and returns a free TCP port.
+func freePort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := l.Addr().(*net.TCPAddr).Port
+	l.Close()
+	return port
 }
 
 // captureStdout captures stdout output from the given function.
@@ -499,7 +513,9 @@ func TestStartFromFlagDefined(t *testing.T) {
 
 func TestStartFromInvalidSource(t *testing.T) {
 	resetJSONFlag()
-	rootCmd.SetArgs([]string{"start", "--from", "/nonexistent/pb_data"})
+	// Use a free port so the early port check doesn't short-circuit the test.
+	port := freePort(t)
+	rootCmd.SetArgs([]string{"start", "--from", "/nonexistent/pb_data", "--port", fmt.Sprintf("%d", port)})
 	err := rootCmd.Execute()
 	if err == nil {
 		t.Fatal("expected error for invalid source path")
