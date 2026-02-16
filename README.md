@@ -7,6 +7,7 @@
 
 Backend-as-a-Service for PostgreSQL. Single binary, zero config, auto-generated REST API + admin dashboard.
 
+
 ```bash
 curl -fsSL https://install.allyourbase.io | sh
 ```
