@@ -1,11 +1,14 @@
-# 👾 Allyourbase
+# 👾 Allyourbase ![Beta](https://img.shields.io/badge/status-beta-orange)
+
+[![CI](https://github.com/gridlhq/allyourbase/actions/workflows/ci.yml/badge.svg)](https://github.com/gridlhq/allyourbase/actions/workflows/ci.yml)
+[![Release](https://github.com/gridlhq/allyourbase/actions/workflows/release.yml/badge.svg)](https://github.com/gridlhq/allyourbase/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 Open-source backend for PostgreSQL. Single binary. Auto-generated REST API, auth, realtime, storage, admin dashboard.
 
-Like PocketBase, but Postgres.
 
 ```bash
-curl -fsSL https://allyourbase.io/install.sh | sh
+curl -fsSL https://install.allyourbase.io | sh
 ayb start
 ```
 
@@ -196,8 +199,12 @@ go install github.com/allyourbase/ayb/cmd/ayb@latest
 git clone https://github.com/gridlhq/allyourbase.git && cd allyourbase && make build
 
 # Specific version
-curl -fsSL https://allyourbase.io/install.sh | sh -s -- v0.1.0
+curl -fsSL https://install.allyourbase.io | sh -s -- v0.1.0
 ```
+
+## Roadmap
+
+- **Fuzz testing** — auth token parsing, JWT validation, and request deserialization boundaries are candidates for Go fuzz corpus coverage (`go test -fuzz`). Currently covered by integration tests but not fuzz-hardened.
 
 ## License
 
