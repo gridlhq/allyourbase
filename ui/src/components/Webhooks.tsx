@@ -210,6 +210,7 @@ export function Webhooks() {
                         onClick={() => copyToClipboard(hook.url, "URL")}
                         className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500"
                         title="Copy URL"
+                        aria-label="Copy URL"
                       >
                         <Copy className="w-3 h-3" />
                       </button>
@@ -258,6 +259,7 @@ export function Webhooks() {
                       title={hook.enabled ? "Disable" : "Enable"}
                       role="switch"
                       aria-checked={hook.enabled}
+                      aria-label={hook.enabled ? "Disable webhook" : "Enable webhook"}
                     >
                       <span
                         className={cn(
@@ -275,6 +277,7 @@ export function Webhooks() {
                         }
                         className="p-1 text-gray-400 hover:text-blue-500 rounded hover:bg-gray-100"
                         title="Delivery History"
+                        aria-label="Delivery History"
                       >
                         <History className="w-3.5 h-3.5" />
                       </button>
@@ -283,6 +286,7 @@ export function Webhooks() {
                         disabled={testingId === hook.id}
                         className="p-1 text-gray-400 hover:text-amber-500 rounded hover:bg-gray-100 disabled:opacity-50"
                         title="Test"
+                        aria-label="Test"
                       >
                         {testingId === hook.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -296,6 +300,7 @@ export function Webhooks() {
                         }
                         className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
                         title="Edit"
+                        aria-label="Edit"
                       >
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
@@ -305,6 +310,7 @@ export function Webhooks() {
                         }
                         className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
                         title="Delete"
+                        aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -452,6 +458,7 @@ function DeliveryHistoryModal({ webhook, onClose }: DeliveryHistoryModalProps) {
           <button
             onClick={onClose}
             className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -682,6 +689,7 @@ function WebhookFormModal({
           <button
             onClick={onClose}
             className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+            aria-label="Close"
           >
             <X className="w-4 h-4" />
           </button>
@@ -695,10 +703,11 @@ function WebhookFormModal({
           )}
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
+            <label htmlFor="webhook-url" className="block text-xs font-medium text-gray-700 mb-1">
               URL <span className="text-red-500">*</span>
             </label>
             <input
+              id="webhook-url"
               type="url"
               value={url}
               onChange={(e) => setUrl(e.target.value)}
@@ -709,11 +718,12 @@ function WebhookFormModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
+            <label htmlFor="webhook-secret" className="block text-xs font-medium text-gray-700 mb-1">
               HMAC Secret
             </label>
             <div className="flex gap-2">
               <input
+                id="webhook-secret"
                 type="text"
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
@@ -733,6 +743,7 @@ function WebhookFormModal({
                   onClick={() => navigator.clipboard.writeText(secret)}
                   className="p-1.5 border rounded text-gray-400 hover:text-gray-600"
                   title="Copy secret"
+                  aria-label="Copy secret"
                 >
                   <Copy className="w-3.5 h-3.5" />
                 </button>
@@ -763,10 +774,11 @@ function WebhookFormModal({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
+            <label htmlFor="webhook-tables" className="block text-xs font-medium text-gray-700 mb-1">
               Tables
             </label>
             <input
+              id="webhook-tables"
               type="text"
               value={tables}
               onChange={(e) => setTables(e.target.value)}
@@ -791,6 +803,7 @@ function WebhookFormModal({
               )}
               role="switch"
               aria-checked={enabled}
+              aria-label="Enabled"
             >
               <span
                 className={cn(

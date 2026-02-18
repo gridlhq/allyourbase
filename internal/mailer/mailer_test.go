@@ -1,12 +1,14 @@
 package mailer
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -16,7 +18,8 @@ import (
 )
 
 func TestLogMailerSend(t *testing.T) {
-	logger := testutil.DiscardLogger()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
 	m := NewLogMailer(logger)
 
 	err := m.Send(context.Background(), &Message{
@@ -26,6 +29,11 @@ func TestLogMailerSend(t *testing.T) {
 		Text:    "Hello",
 	})
 	testutil.NoError(t, err)
+
+	// Verify the logger actually received the message fields.
+	output := buf.String()
+	testutil.Contains(t, output, "user@example.com")
+	testutil.Contains(t, output, "Test Subject")
 }
 
 func TestWebhookMailerSend(t *testing.T) {
@@ -54,10 +62,10 @@ func TestWebhookMailerSend(t *testing.T) {
 	err := m.Send(context.Background(), msg)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, received.To, "user@example.com")
-	testutil.Equal(t, received.Subject, "Test")
-	testutil.Equal(t, received.HTML, "<p>Hi</p>")
-	testutil.Equal(t, received.Text, "Hi")
+	testutil.Equal(t, "user@example.com", received.To)
+	testutil.Equal(t, "Test", received.Subject)
+	testutil.Equal(t, "<p>Hi</p>", received.HTML)
+	testutil.Equal(t, "Hi", received.Text)
 
 	// Verify HMAC signature.
 	testutil.True(t, gotSig != "", "signature header should be set")
@@ -65,7 +73,7 @@ func TestWebhookMailerSend(t *testing.T) {
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write(payload)
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
-	testutil.Equal(t, gotSig, expectedSig)
+	testutil.Equal(t, expectedSig, gotSig)
 }
 
 func TestWebhookMailerNoSecret(t *testing.T) {
@@ -79,17 +87,17 @@ func TestWebhookMailerNoSecret(t *testing.T) {
 	m := NewWebhookMailer(WebhookConfig{URL: srv.URL})
 	err := m.Send(context.Background(), &Message{To: "a@b.com", Subject: "x"})
 	testutil.NoError(t, err)
-	testutil.Equal(t, gotSig, "")
+	testutil.Equal(t, "", gotSig)
 }
 
 func TestWebhookMailerDefaultTimeout(t *testing.T) {
 	m := NewWebhookMailer(WebhookConfig{URL: "http://localhost"})
-	testutil.Equal(t, m.client.Timeout.Seconds(), float64(10))
+	testutil.Equal(t, float64(10), m.client.Timeout.Seconds())
 }
 
 func TestWebhookMailerCustomTimeout(t *testing.T) {
 	m := NewWebhookMailer(WebhookConfig{URL: "http://localhost", Timeout: 30 * time.Second})
-	testutil.Equal(t, m.client.Timeout.Seconds(), float64(30))
+	testutil.Equal(t, float64(30), m.client.Timeout.Seconds())
 }
 
 func TestWebhookMailerNon2xx(t *testing.T) {
@@ -128,6 +136,19 @@ func TestRenderVerification(t *testing.T) {
 	testutil.Contains(t, text, "Verify your email")
 }
 
+func TestRenderMagicLink(t *testing.T) {
+	html, text, err := RenderMagicLink(TemplateData{
+		AppName:   "Sigil",
+		ActionURL: "https://example.com/auth/magic-link/confirm?token=tok123",
+	})
+	testutil.NoError(t, err)
+	testutil.Contains(t, html, "login link")
+	testutil.Contains(t, html, "Sigil")
+	testutil.Contains(t, html, "https://example.com/auth/magic-link/confirm?token=tok123")
+	testutil.Contains(t, text, "login link")
+	testutil.True(t, len(text) > 0, "text fallback should not be empty")
+}
+
 func TestStripHTML(t *testing.T) {
 	tests := []struct {
 		name string
@@ -142,19 +163,21 @@ func TestStripHTML(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := stripHTML(tt.in)
-			testutil.Equal(t, got, tt.want)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }
 
-func TestSMTPMailerConfigValidation(t *testing.T) {
-	// Verify NewSMTPMailer creates without panic.
+func TestSMTPMailerConfigStored(t *testing.T) {
 	m := NewSMTPMailer(SMTPConfig{
 		Host: "smtp.example.com",
 		Port: 587,
 		From: "noreply@example.com",
 	})
 	testutil.True(t, m != nil, "SMTPMailer should not be nil")
+	testutil.Equal(t, "smtp.example.com", m.cfg.Host)
+	testutil.Equal(t, 587, m.cfg.Port)
+	testutil.Equal(t, "noreply@example.com", m.cfg.From)
 }
 
 func TestSMTPMailerFormatFrom(t *testing.T) {
@@ -170,7 +193,7 @@ func TestSMTPMailerFormatFrom(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			m := &SMTPMailer{cfg: SMTPConfig{From: tt.from, FromName: tt.fromName}}
-			testutil.Equal(t, m.formatFrom(), tt.want)
+			testutil.Equal(t, tt.want, m.formatFrom())
 		})
 	}
 }
@@ -194,7 +217,7 @@ func TestSMTPMailerAuthTypes(t *testing.T) {
 			m := &SMTPMailer{cfg: SMTPConfig{AuthMethod: tt.method}}
 			result := m.authType()
 			if tt.wantSame {
-				testutil.Equal(t, result, plainResult)
+				testutil.Equal(t, plainResult, result)
 			} else {
 				testutil.True(t, result != plainResult,
 					"expected %q to produce different auth type than PLAIN", tt.method)

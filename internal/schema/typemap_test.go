@@ -91,7 +91,7 @@ func TestPgTypeToJSON(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := pgTypeToJSON(tt.typ, tt.isArray, tt.isEnum, tt.isJSON)
-			testutil.Equal(t, got, tt.want)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }

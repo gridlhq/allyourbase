@@ -198,6 +198,9 @@ func (s *Service) ListObjects(ctx context.Context, bucket string, prefix string,
 		}
 		objects = append(objects, obj)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("iterating objects: %w", err)
+	}
 
 	return objects, total, nil
 }

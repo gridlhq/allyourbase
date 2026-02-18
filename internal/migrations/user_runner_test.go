@@ -24,7 +24,7 @@ func TestSanitizeName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			testutil.Equal(t, sanitizeName(tt.input), tt.want)
+			testutil.Equal(t, tt.want, sanitizeName(tt.input))
 		})
 	}
 }
@@ -109,9 +109,9 @@ func TestListFilesSorted(t *testing.T) {
 	files, err := r.listFiles()
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, files, 3)
-	testutil.Equal(t, files[0], "20260205_a.sql")
-	testutil.Equal(t, files[1], "20260206_b.sql")
-	testutil.Equal(t, files[2], "20260207_c.sql")
+	testutil.Equal(t, "20260205_a.sql", files[0])
+	testutil.Equal(t, "20260206_b.sql", files[1])
+	testutil.Equal(t, "20260207_c.sql", files[2])
 }
 
 func TestListFilesIgnoresDirectories(t *testing.T) {
@@ -123,5 +123,5 @@ func TestListFilesIgnoresDirectories(t *testing.T) {
 	files, err := r.listFiles()
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, files, 1)
-	testutil.Equal(t, files[0], "001_init.sql")
+	testutil.Equal(t, "001_init.sql", files[0])
 }

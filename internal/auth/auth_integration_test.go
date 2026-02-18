@@ -16,6 +16,7 @@ import (
 
 	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/config"
+	"github.com/allyourbase/ayb/internal/mailer"
 	"github.com/allyourbase/ayb/internal/migrations"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/server"
@@ -120,7 +121,7 @@ func TestRegisterSuccess(t *testing.T) {
 		"email": "alice@example.com", "password": "password123",
 	}, "")
 
-	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
 
 	resp := parseAuthResp(t, w)
 	testutil.True(t, resp.Token != "", "should return a token")
@@ -135,11 +136,11 @@ func TestRegisterDuplicateEmail(t *testing.T) {
 
 	body := map[string]string{"email": "dup@example.com", "password": "password123"}
 	w := doJSON(t, srv, "POST", "/api/auth/register", body, "")
-	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
 
 	// Same email again.
 	w = doJSON(t, srv, "POST", "/api/auth/register", body, "")
-	testutil.Equal(t, http.StatusConflict, w.Code)
+	testutil.StatusCode(t, http.StatusConflict, w.Code)
 }
 
 func TestRegisterDuplicateEmailCaseInsensitive(t *testing.T) {
@@ -149,13 +150,13 @@ func TestRegisterDuplicateEmailCaseInsensitive(t *testing.T) {
 	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
 		"email": "User@Example.com", "password": "password123",
 	}, "")
-	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
 
 	// Same email, different case.
 	w = doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
 		"email": "user@example.com", "password": "password123",
 	}, "")
-	testutil.Equal(t, http.StatusConflict, w.Code)
+	testutil.StatusCode(t, http.StatusConflict, w.Code)
 }
 
 // --- Login tests ---
@@ -173,7 +174,7 @@ func TestLoginSuccess(t *testing.T) {
 	w := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
 		"email": "login@example.com", "password": "password123",
 	}, "")
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 
 	resp := parseAuthResp(t, w)
 	testutil.True(t, resp.Token != "", "should return a token")
@@ -192,7 +193,7 @@ func TestLoginWrongPassword(t *testing.T) {
 	w := doJSON(t, srv, "POST", "/api/auth/login", map[string]string{
 		"email": "wrong@example.com", "password": "wrongpassword",
 	}, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestLoginNonexistentEmail(t *testing.T) {
@@ -203,7 +204,7 @@ func TestLoginNonexistentEmail(t *testing.T) {
 		"email": "noone@example.com", "password": "password123",
 	}, "")
 	// Same status as wrong password — no enumeration.
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 // --- /me endpoint tests ---
@@ -218,10 +219,12 @@ func TestMeWithRegisterToken(t *testing.T) {
 	resp := parseAuthResp(t, w)
 
 	w = doJSON(t, srv, "GET", "/api/auth/me", nil, resp.Token)
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 
 	var user map[string]any
-	json.Unmarshal(w.Body.Bytes(), &user)
+	if err := json.Unmarshal(w.Body.Bytes(), &user); err != nil {
+		t.Fatalf("parsing /me response: %v (body: %s)", err, w.Body.String())
+	}
 	testutil.Equal(t, "me@example.com", user["email"].(string))
 }
 
@@ -239,7 +242,13 @@ func TestMeWithLoginToken(t *testing.T) {
 	resp := parseAuthResp(t, w)
 
 	w = doJSON(t, srv, "GET", "/api/auth/me", nil, resp.Token)
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	var user map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &user); err != nil {
+		t.Fatalf("parsing /me response: %v (body: %s)", err, w.Body.String())
+	}
+	testutil.Equal(t, "melogin@example.com", user["email"].(string))
 }
 
 func TestMeWithoutToken(t *testing.T) {
@@ -247,7 +256,7 @@ func TestMeWithoutToken(t *testing.T) {
 	srv := setupAuthServer(t, ctx)
 
 	w := doJSON(t, srv, "GET", "/api/auth/me", nil, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 // --- Protected collection endpoints ---
@@ -278,7 +287,7 @@ func TestCollectionEndpointRequiresAuth(t *testing.T) {
 
 	// Without token → 401.
 	w := doJSON(t, srv, "GET", "/api/collections/posts/", nil, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 
 	// Register and get token.
 	w = doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
@@ -288,7 +297,7 @@ func TestCollectionEndpointRequiresAuth(t *testing.T) {
 
 	// With token → 200.
 	w = doJSON(t, srv, "GET", "/api/collections/posts/", nil, resp.Token)
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 }
 
 // --- RLS enforcement ---
@@ -343,23 +352,27 @@ func TestRLSEnforcement(t *testing.T) {
 
 	// User 1 should only see their note.
 	w = doJSON(t, srv, "GET", "/api/collections/notes/", nil, user1.Token)
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 
 	var list1 struct {
 		Items []map[string]any `json:"items"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &list1)
+	if err := json.Unmarshal(w.Body.Bytes(), &list1); err != nil {
+		t.Fatalf("parsing user1 notes response: %v (body: %s)", err, w.Body.String())
+	}
 	testutil.Equal(t, 1, len(list1.Items))
 	testutil.Equal(t, "user1 note", list1.Items[0]["content"])
 
 	// User 2 should only see their note.
 	w = doJSON(t, srv, "GET", "/api/collections/notes/", nil, user2.Token)
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 
 	var list2 struct {
 		Items []map[string]any `json:"items"`
 	}
-	json.Unmarshal(w.Body.Bytes(), &list2)
+	if err := json.Unmarshal(w.Body.Bytes(), &list2); err != nil {
+		t.Fatalf("parsing user2 notes response: %v (body: %s)", err, w.Body.String())
+	}
 	testutil.Equal(t, 1, len(list2.Items))
 	testutil.Equal(t, "user2 note", list2.Items[0]["content"])
 }
@@ -392,7 +405,7 @@ func TestRefreshTokenFlow(t *testing.T) {
 	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
 		"email": "refresh@example.com", "password": "password123",
 	}, "")
-	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
 	resp := parseAuthResp(t, w)
 	testutil.True(t, resp.RefreshToken != "", "should return refresh token")
 
@@ -400,14 +413,14 @@ func TestRefreshTokenFlow(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": resp.RefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 	refreshResp := parseAuthResp(t, w)
 	testutil.True(t, refreshResp.Token != "", "should return new access token")
 	testutil.True(t, refreshResp.RefreshToken != "", "should return new refresh token")
 
 	// Verify the new access token works on /me.
 	w = doJSON(t, srv, "GET", "/api/auth/me", nil, refreshResp.Token)
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 }
 
 func TestRefreshTokenExpired(t *testing.T) {
@@ -426,7 +439,7 @@ func TestRefreshTokenExpired(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": resp.RefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestLogout(t *testing.T) {
@@ -442,13 +455,13 @@ func TestLogout(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/logout", map[string]string{
 		"refreshToken": resp.RefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusNoContent, w.Code)
+	testutil.StatusCode(t, http.StatusNoContent, w.Code)
 
 	// Refresh with the logged-out token should fail.
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": resp.RefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 // --- OAuth integration tests ---
@@ -619,7 +632,7 @@ func TestOAuthHandlerFullFlowMocked(t *testing.T) {
 	req.Host = "localhost:8090"
 	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
-	testutil.Equal(t, http.StatusTemporaryRedirect, w.Code)
+	testutil.StatusCode(t, http.StatusTemporaryRedirect, w.Code)
 	loc := w.Header().Get("Location")
 	testutil.True(t, loc != "", "should redirect")
 
@@ -643,7 +656,7 @@ func TestOAuthHandlerFullFlowMocked(t *testing.T) {
 	srv.Router().ServeHTTP(w, req)
 
 	// Should redirect to the configured redirect URL with tokens.
-	testutil.Equal(t, http.StatusTemporaryRedirect, w.Code)
+	testutil.StatusCode(t, http.StatusTemporaryRedirect, w.Code)
 	redirectLoc := w.Header().Get("Location")
 	testutil.True(t, redirectLoc != "", "should redirect with tokens")
 	testutil.True(t, len(redirectLoc) > len("http://localhost:5173/callback#"), "redirect should have fragment")
@@ -707,7 +720,7 @@ func TestRefreshTokenRotation(t *testing.T) {
 	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
 		"email": "refresh@example.com", "password": "password123",
 	}, "")
-	testutil.Equal(t, http.StatusCreated, w.Code)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
 	resp1 := parseAuthResp(t, w)
 	oldRefreshToken := resp1.RefreshToken
 
@@ -715,7 +728,7 @@ func TestRefreshTokenRotation(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": oldRefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 	resp2 := parseAuthResp(t, w)
 
 	// Verify new tokens are different.
@@ -726,13 +739,13 @@ func TestRefreshTokenRotation(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": oldRefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 
 	// New refresh token should work.
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": resp2.RefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 }
 
 func TestRefreshTokenCanOnlyBeUsedOnce(t *testing.T) {
@@ -750,13 +763,13 @@ func TestRefreshTokenCanOnlyBeUsedOnce(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": refreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusOK, w.Code)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
 
 	// Second use of same token fails.
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": refreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 func TestRefreshTokenRejectedAfterExpiry(t *testing.T) {
@@ -788,7 +801,7 @@ func TestRefreshTokenRejectedAfterExpiry(t *testing.T) {
 	w = doJSON(t, srv, "POST", "/api/auth/refresh", map[string]string{
 		"refreshToken": resp.RefreshToken,
 	}, "")
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
+	testutil.StatusCode(t, http.StatusUnauthorized, w.Code)
 }
 
 // --- Verification token tests ---
@@ -864,6 +877,508 @@ func TestVerificationTokenInvalidFormat(t *testing.T) {
 	// Try to verify with invalid token.
 	err := authSvc.ConfirmEmail(ctx, "not-a-real-token")
 	testutil.ErrorContains(t, err, "invalid or expired verification token")
+}
+
+// --- API key management integration tests ---
+
+func registerAndGetToken(t *testing.T, srv *server.Server, email string) string {
+	t.Helper()
+	w := doJSON(t, srv, "POST", "/api/auth/register", map[string]string{
+		"email": email, "password": "password123",
+	}, "")
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+	resp := parseAuthResp(t, w)
+	return resp.Token
+}
+
+func TestAPIKeyCreateSuccess(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-create@example.com")
+
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+		"name": "my-key",
+	}, token)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	var resp struct {
+		Key    string `json:"key"`
+		APIKey struct {
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"apiKey"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	// API key should have realistic length (prefix + hash).
+	testutil.True(t, len(resp.Key) >= 32, "apiKey should be at least 32 chars")
+	testutil.Contains(t, resp.Key, "ayb_")
+	testutil.Equal(t, "my-key", resp.APIKey.Name)
+	// UUID should be exactly 36 chars (8-4-4-4-12 with hyphens).
+	testutil.Equal(t, 36, len(resp.APIKey.ID))
+}
+
+func TestAPIKeyCreateWithScope(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-scope@example.com")
+
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]any{
+		"name":  "readonly-key",
+		"scope": "readonly",
+	}, token)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	var resp struct {
+		Key    string `json:"key"`
+		APIKey struct {
+			Scope string `json:"scope"`
+			Name  string `json:"name"`
+		} `json:"apiKey"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	testutil.Equal(t, "readonly", resp.APIKey.Scope)
+	testutil.Equal(t, "readonly-key", resp.APIKey.Name)
+}
+
+func TestAPIKeyCreateInvalidScope(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-badscope@example.com")
+
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+		"name":  "bad-scope-key",
+		"scope": "admin",
+	}, token)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid scope")
+}
+
+func TestAPIKeyListSuccess(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-list@example.com")
+
+	// Create two keys.
+	for _, name := range []string{"key-1", "key-2"} {
+		w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+			"name": name,
+		}, token)
+		testutil.StatusCode(t, http.StatusCreated, w.Code)
+	}
+
+	// List keys.
+	w := doJSON(t, srv, "GET", "/api/auth/api-keys/", nil, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	var keys []json.RawMessage
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &keys))
+	testutil.Equal(t, 2, len(keys))
+}
+
+func TestAPIKeyListEmpty(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-empty@example.com")
+
+	w := doJSON(t, srv, "GET", "/api/auth/api-keys/", nil, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	var keys []json.RawMessage
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &keys))
+	testutil.Equal(t, 0, len(keys))
+}
+
+func TestAPIKeyRevokeSuccess(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-revoke@example.com")
+
+	// Create a key.
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+		"name": "to-revoke",
+	}, token)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	var createResp struct {
+		APIKey struct {
+			ID string `json:"id"`
+		} `json:"apiKey"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &createResp))
+	testutil.True(t, createResp.APIKey.ID != "", "should return key ID")
+
+	// Revoke it.
+	w = doJSON(t, srv, "DELETE", "/api/auth/api-keys/"+createResp.APIKey.ID, nil, token)
+	testutil.StatusCode(t, http.StatusNoContent, w.Code)
+
+	// List should show the key with revokedAt set (key still exists, just revoked).
+	w = doJSON(t, srv, "GET", "/api/auth/api-keys/", nil, token)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	var keys []struct {
+		ID        string  `json:"id"`
+		RevokedAt *string `json:"revokedAt"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &keys))
+	testutil.Equal(t, 1, len(keys))
+	testutil.True(t, keys[0].RevokedAt != nil, "key should have revokedAt set")
+}
+
+func TestAPIKeyRevokeNotFound(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-notfound@example.com")
+
+	w := doJSON(t, srv, "DELETE", "/api/auth/api-keys/00000000-0000-0000-0000-000000000000", nil, token)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	testutil.Contains(t, w.Body.String(), "api key not found")
+}
+
+func TestAPIKeyRevokeInvalidUUID(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-baduuid@example.com")
+
+	w := doJSON(t, srv, "DELETE", "/api/auth/api-keys/not-a-uuid", nil, token)
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid api key id format")
+}
+
+func TestAPIKeyRevokeAlreadyRevoked(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token := registerAndGetToken(t, srv, "apikey-double-revoke@example.com")
+
+	// Create and revoke a key.
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+		"name": "double-revoke",
+	}, token)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	var createResp struct {
+		APIKey struct {
+			ID string `json:"id"`
+		} `json:"apiKey"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &createResp))
+
+	// First revoke succeeds.
+	w = doJSON(t, srv, "DELETE", "/api/auth/api-keys/"+createResp.APIKey.ID, nil, token)
+	testutil.StatusCode(t, http.StatusNoContent, w.Code)
+
+	// Second revoke returns 404 (revoked_at IS NULL clause fails).
+	w = doJSON(t, srv, "DELETE", "/api/auth/api-keys/"+createResp.APIKey.ID, nil, token)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	testutil.Contains(t, w.Body.String(), "api key not found")
+}
+
+func TestAPIKeyIsolationBetweenUsers(t *testing.T) {
+	ctx := context.Background()
+	srv := setupAuthServer(t, ctx)
+	token1 := registerAndGetToken(t, srv, "apikey-user1@example.com")
+	token2 := registerAndGetToken(t, srv, "apikey-user2@example.com")
+
+	// User 1 creates a key.
+	w := doJSON(t, srv, "POST", "/api/auth/api-keys/", map[string]string{
+		"name": "user1-key",
+	}, token1)
+	testutil.StatusCode(t, http.StatusCreated, w.Code)
+
+	var createResp struct {
+		APIKey struct {
+			ID string `json:"id"`
+		} `json:"apiKey"`
+	}
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &createResp))
+
+	// User 2 cannot see user 1's keys.
+	w = doJSON(t, srv, "GET", "/api/auth/api-keys/", nil, token2)
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var keys []json.RawMessage
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &keys))
+	testutil.Equal(t, 0, len(keys))
+
+	// User 2 cannot revoke user 1's key.
+	w = doJSON(t, srv, "DELETE", "/api/auth/api-keys/"+createResp.APIKey.ID, nil, token2)
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+}
+
+// --- Magic link integration tests ---
+
+func setupMagicLinkServer(t *testing.T, ctx context.Context) *server.Server {
+	t.Helper()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	if err := ch.Load(ctx); err != nil {
+		t.Fatalf("loading schema cache: %v", err)
+	}
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	cfg.Auth.MagicLinkEnabled = true
+
+	authSvc := newAuthService()
+	authSvc.SetMagicLinkDuration(10 * time.Minute)
+	return server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+}
+
+func TestMagicLinkRequestReturns200(t *testing.T) {
+	ctx := context.Background()
+	srv := setupMagicLinkServer(t, ctx)
+
+	// Request for nonexistent email should still return 200 (no enumeration).
+	w := doJSON(t, srv, "POST", "/api/auth/magic-link", map[string]string{
+		"email": "nobody@example.com",
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	testutil.Contains(t, w.Body.String(), "if valid, a login link has been sent")
+}
+
+func TestMagicLinkFullFlowNewUser(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	authSvc := newAuthService()
+	authSvc.SetMagicLinkDuration(10 * time.Minute)
+
+	email := "newmagic@example.com"
+
+	// Verify user doesn't exist yet.
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM _ayb_users WHERE LOWER(email) = $1", email,
+	).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 0, count)
+
+	// Insert a magic link token directly (simulating what RequestMagicLink does).
+	token := "test-magic-token-new-user"
+	hash := hashTokenForTest(token)
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		email, hash, time.Now().Add(10*time.Minute),
+	)
+	testutil.NoError(t, err)
+
+	// Confirm the magic link.
+	user, accessToken, refreshToken, err := authSvc.ConfirmMagicLink(ctx, token)
+	testutil.NoError(t, err)
+	testutil.True(t, user.ID != "", "should create user")
+	testutil.Equal(t, email, user.Email)
+	testutil.True(t, accessToken != "", "should return access token")
+	testutil.True(t, refreshToken != "", "should return refresh token")
+
+	// Verify the access token works.
+	claims, err := authSvc.ValidateToken(accessToken)
+	testutil.NoError(t, err)
+	testutil.Equal(t, user.ID, claims.Subject)
+
+	// Verify user was created in DB with email_verified = true.
+	var verified bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		"SELECT email_verified FROM _ayb_users WHERE id = $1", user.ID,
+	).Scan(&verified)
+	testutil.NoError(t, err)
+	testutil.True(t, verified, "email should be verified after magic link login")
+}
+
+func TestMagicLinkFullFlowExistingUser(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	authSvc := newAuthService()
+	authSvc.SetMagicLinkDuration(10 * time.Minute)
+
+	// Register a user first.
+	existingUser, _, _, err := authSvc.Register(ctx, "existing@example.com", "password123")
+	testutil.NoError(t, err)
+
+	// Insert a magic link token for the existing user's email.
+	token := "test-magic-token-existing"
+	hash := hashTokenForTest(token)
+	_, err = sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		existingUser.Email, hash, time.Now().Add(10*time.Minute),
+	)
+	testutil.NoError(t, err)
+
+	// Confirm the magic link.
+	user, accessToken, _, err := authSvc.ConfirmMagicLink(ctx, token)
+	testutil.NoError(t, err)
+	testutil.Equal(t, existingUser.ID, user.ID) // same user, not a new one
+	testutil.True(t, accessToken != "", "should return access token")
+
+	// Email should now be verified.
+	var verified bool
+	err = sharedPG.Pool.QueryRow(ctx,
+		"SELECT email_verified FROM _ayb_users WHERE id = $1", user.ID,
+	).Scan(&verified)
+	testutil.NoError(t, err)
+	testutil.True(t, verified, "email should be verified after magic link login")
+}
+
+func TestMagicLinkTokenConsumedAfterUse(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	authSvc := newAuthService()
+	authSvc.SetMagicLinkDuration(10 * time.Minute)
+
+	email := "consumed@example.com"
+	token := "test-magic-token-consumed"
+	hash := hashTokenForTest(token)
+	_, err := sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		email, hash, time.Now().Add(10*time.Minute),
+	)
+	testutil.NoError(t, err)
+
+	// First use succeeds.
+	_, _, _, err = authSvc.ConfirmMagicLink(ctx, token)
+	testutil.NoError(t, err)
+
+	// Second use fails (token consumed).
+	_, _, _, err = authSvc.ConfirmMagicLink(ctx, token)
+	testutil.ErrorContains(t, err, "invalid or expired magic link token")
+}
+
+func TestMagicLinkTokenExpired(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	authSvc := newAuthService()
+
+	email := "expired-magic@example.com"
+	token := "test-magic-token-expired"
+	hash := hashTokenForTest(token)
+	_, err := sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		email, hash, time.Now().Add(-time.Hour), // already expired
+	)
+	testutil.NoError(t, err)
+
+	_, _, _, err = authSvc.ConfirmMagicLink(ctx, token)
+	testutil.ErrorContains(t, err, "invalid or expired magic link token")
+}
+
+func TestMagicLinkTokenInvalid(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	authSvc := newAuthService()
+
+	_, _, _, err := authSvc.ConfirmMagicLink(ctx, "not-a-real-token")
+	testutil.ErrorContains(t, err, "invalid or expired magic link token")
+}
+
+func TestMagicLinkHandlerConfirmFullFlow(t *testing.T) {
+	ctx := context.Background()
+	srv := setupMagicLinkServer(t, ctx)
+
+	// Insert a token directly.
+	email := "handler-flow@example.com"
+	token := "test-handler-magic-token"
+	hash := hashTokenForTest(token)
+	_, err := sharedPG.Pool.Exec(ctx,
+		`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
+		 VALUES ($1, $2, $3)`,
+		email, hash, time.Now().Add(10*time.Minute),
+	)
+	testutil.NoError(t, err)
+
+	// Confirm via HTTP.
+	w := doJSON(t, srv, "POST", "/api/auth/magic-link/confirm", map[string]string{
+		"token": token,
+	}, "")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+
+	resp := parseAuthResp(t, w)
+	testutil.True(t, resp.Token != "", "should return access token")
+	testutil.True(t, resp.RefreshToken != "", "should return refresh token")
+	testutil.Equal(t, email, resp.User["email"].(string))
+}
+
+func TestMagicLinkHandlerConfirmInvalidToken(t *testing.T) {
+	ctx := context.Background()
+	srv := setupMagicLinkServer(t, ctx)
+
+	w := doJSON(t, srv, "POST", "/api/auth/magic-link/confirm", map[string]string{
+		"token": "bogus-token",
+	}, "")
+	testutil.StatusCode(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid or expired magic link token")
+}
+
+func TestMagicLinkDisabledReturns404(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+
+	cfg := config.Default()
+	cfg.Auth.Enabled = true
+	cfg.Auth.JWTSecret = testJWTSecret
+	// MagicLinkEnabled defaults to false.
+
+	authSvc := newAuthService()
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, authSvc, nil)
+
+	w := doJSON(t, srv, "POST", "/api/auth/magic-link", map[string]string{
+		"email": "test@example.com",
+	}, "")
+	testutil.StatusCode(t, http.StatusNotFound, w.Code)
+	testutil.Contains(t, w.Body.String(), "not enabled")
+}
+
+func TestMagicLinkRequestMagicLinkDeletesPreviousTokens(t *testing.T) {
+	ctx := context.Background()
+	resetAndMigrate(t, ctx)
+
+	authSvc := newAuthService()
+	authSvc.SetMagicLinkDuration(10 * time.Minute)
+	// Wire up a log mailer so RequestMagicLink actually runs (it's a no-op without a mailer).
+	authSvc.SetMailer(mailer.NewLogMailer(testutil.DiscardLogger()), "TestApp", "http://localhost:8090/api")
+
+	email := "cleanup@example.com"
+
+	// Insert two tokens for the same email.
+	for _, tok := range []string{"old-token-1", "old-token-2"} {
+		hash := hashTokenForTest(tok)
+		_, err := sharedPG.Pool.Exec(ctx,
+			`INSERT INTO _ayb_magic_links (email, token_hash, expires_at)
+			 VALUES ($1, $2, $3)`,
+			email, hash, time.Now().Add(10*time.Minute),
+		)
+		testutil.NoError(t, err)
+	}
+
+	// Verify 2 tokens exist.
+	var count int
+	err := sharedPG.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM _ayb_magic_links WHERE email = $1", email,
+	).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 2, count)
+
+	// Call the actual RequestMagicLink method — this should delete old tokens and insert a new one.
+	err = authSvc.RequestMagicLink(ctx, email)
+	testutil.NoError(t, err)
+
+	// After cleanup + insert, should be exactly 1 (the new token).
+	err = sharedPG.Pool.QueryRow(ctx,
+		"SELECT COUNT(*) FROM _ayb_magic_links WHERE email = $1", email,
+	).Scan(&count)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 1, count)
 }
 
 // hashTokenForTest computes SHA-256 hash of a token (same as internal/auth/auth.go).

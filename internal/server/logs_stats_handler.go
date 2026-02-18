@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
 	"runtime"
 	"time"
@@ -51,19 +50,16 @@ func (s *Server) handleAdminStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleAdminSecretsRotate generates a new JWT secret, invalidating all tokens.
+// Route is only registered when authSvc != nil (see server.go).
 func (s *Server) handleAdminSecretsRotate(w http.ResponseWriter, r *http.Request) {
-	if s.authSvc == nil {
-		httputil.WriteError(w, http.StatusBadRequest, "auth service not enabled")
-		return
-	}
-
-	newSecret, err := s.authSvc.RotateJWTSecret()
+	_, err := s.authSvc.RotateJWTSecret()
 	if err != nil {
-		httputil.WriteError(w, http.StatusInternalServerError, fmt.Sprintf("failed to rotate secret: %v", err))
+		s.logger.Error("JWT secret rotation failed", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "failed to rotate secret")
 		return
 	}
 
-	s.logger.Info("JWT secret rotated", "secret_prefix", newSecret[:8]+"...")
+	s.logger.Info("JWT secret rotated")
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{
 		"message": "JWT secret rotated successfully. All existing tokens have been invalidated.",

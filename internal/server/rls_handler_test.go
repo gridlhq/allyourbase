@@ -172,9 +172,9 @@ func TestListRlsPoliciesByTable(t *testing.T) {
 	var policies []RlsPolicy
 	err := json.NewDecoder(w.Body).Decode(&policies)
 	testutil.NoError(t, err)
-	testutil.Equal(t, len(policies), 1)
-	testutil.Equal(t, policies[0].PolicyName, "p1")
-	testutil.Equal(t, policies[0].TableName, "posts")
+	testutil.Equal(t, 1, len(policies))
+	testutil.Equal(t, "p1", policies[0].PolicyName)
+	testutil.Equal(t, "posts", policies[0].TableName)
 }
 
 func TestListRlsPoliciesQueryError(t *testing.T) {
@@ -220,7 +220,7 @@ func TestGetRlsStatusTableNotFound(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusNotFound)
+	testutil.Equal(t, http.StatusNotFound, w.Code)
 	testutil.Contains(t, w.Body.String(), "table not found")
 }
 
@@ -494,7 +494,7 @@ func TestIdentifierValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			testutil.Equal(t, isValidIdentifier(tt.input), tt.want)
+			testutil.Equal(t, tt.want, isValidIdentifier(tt.input))
 		})
 	}
 }
@@ -745,8 +745,8 @@ func TestListRlsPoliciesNilRolesReturnsEmptyArray(t *testing.T) {
 	var policies []RlsPolicy
 	err := json.NewDecoder(w.Body).Decode(&policies)
 	testutil.NoError(t, err)
-	testutil.Equal(t, len(policies), 1)
-	testutil.Equal(t, len(policies[0].Roles), 0)
+	testutil.Equal(t, 1, len(policies))
+	testutil.Equal(t, 0, len(policies[0].Roles))
 	testutil.True(t, policies[0].WithCheckExpr == nil, "WithCheckExpr should be nil")
 }
 

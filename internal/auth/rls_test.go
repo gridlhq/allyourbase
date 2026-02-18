@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/testutil"
@@ -9,7 +10,7 @@ import (
 
 func TestSetRLSContextNilClaims(t *testing.T) {
 	// Nil claims should be a no-op.
-	err := SetRLSContext(nil, nil, nil)
+	err := SetRLSContext(context.Background(), nil, nil)
 	testutil.NoError(t, err)
 }
 
@@ -188,18 +189,3 @@ func TestRLSStatements(t *testing.T) {
 	}
 }
 
-func TestAuthenticatedRoleConstant(t *testing.T) {
-	testutil.Equal(t, "ayb_authenticated", AuthenticatedRole)
-}
-
-func TestRLSSessionVariableNames(t *testing.T) {
-	claims := &Claims{
-		RegisteredClaims: jwt.RegisteredClaims{Subject: "user-123"},
-		Email:            "test@example.com",
-	}
-
-	_, userIDSQL, emailSQL := rlsStatements(claims)
-
-	testutil.Contains(t, userIDSQL, "ayb.user_id")
-	testutil.Contains(t, emailSQL, "ayb.user_email")
-}

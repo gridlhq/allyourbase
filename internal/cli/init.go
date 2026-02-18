@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/allyourbase/ayb/internal/scaffold"
 	"github.com/spf13/cobra"
 )
@@ -47,7 +48,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unknown template %q (available: %s)", tmpl, strings.Join(templateNames(), ", "))
 	}
 
-	fmt.Printf("Creating %s project: %s\n", tmpl, name)
+	useColor := colorEnabled()
+	if useColor {
+		fmt.Printf("%s Creating %s project: %s\n",
+			ui.BrandEmoji,
+			bold(tmpl, true),
+			boldCyan(name, true))
+	} else {
+		fmt.Printf("%s Creating %s project: %s\n", ui.BrandEmoji, tmpl, name)
+	}
 
 	err := scaffold.Run(scaffold.Options{
 		Name:     name,
@@ -57,18 +66,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("\nDone! Next steps:\n")
+	fmt.Println()
+	if useColor {
+		fmt.Printf("  %s %s\n\n", green(ui.SymbolCheck, true), bold("Project created!", true))
+	} else {
+		fmt.Printf("  %s Done!\n\n", ui.SymbolCheck)
+	}
+	fmt.Printf("  %s\n", dim("Next steps:", useColor))
 	fmt.Printf("  cd %s\n", name)
 	fmt.Printf("  ayb start\n")
 	fmt.Printf("  ayb sql < schema.sql\n")
-
-	if tmpl == "react" || tmpl == "next" {
-		fmt.Printf("  npm install\n")
-		fmt.Printf("  npm run dev\n")
-	} else {
-		fmt.Printf("  npm install\n")
-		fmt.Printf("  npm run dev\n")
-	}
+	fmt.Printf("  npm install\n")
+	fmt.Printf("  npm run dev\n")
 
 	return nil
 }

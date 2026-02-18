@@ -83,10 +83,10 @@ func TestStorageUploadAndServe(t *testing.T) {
 
 	resp, err := http.Post(ts.URL+"/api/storage/testbucket", w.FormDataContentType(), body)
 	testutil.NoError(t, err)
-	testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 
 	var obj map[string]any
-	json.NewDecoder(resp.Body).Decode(&obj)
+	testutil.NoError(t, json.NewDecoder(resp.Body).Decode(&obj))
 	resp.Body.Close()
 
 	testutil.Equal(t, "testbucket", obj["bucket"])
@@ -96,7 +96,7 @@ func TestStorageUploadAndServe(t *testing.T) {
 	// Serve the file.
 	resp, err = http.Get(ts.URL + "/api/storage/testbucket/hello.txt")
 	testutil.NoError(t, err)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	got, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	testutil.Equal(t, "Hello, Storage!", string(got))
@@ -113,20 +113,21 @@ func TestStorageDelete(t *testing.T) {
 	fw.Write([]byte("bye"))
 	w.Close()
 
-	resp, _ := http.Post(ts.URL+"/api/storage/testbucket", w.FormDataContentType(), body)
+	resp, err := http.Post(ts.URL+"/api/storage/testbucket", w.FormDataContentType(), body)
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
-	testutil.Equal(t, http.StatusCreated, resp.StatusCode)
 
 	// Delete.
 	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/storage/testbucket/delete-me.txt", nil)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err = http.DefaultClient.Do(req)
 	testutil.NoError(t, err)
-	testutil.Equal(t, http.StatusNoContent, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusNoContent, resp.StatusCode)
 	resp.Body.Close()
 
 	// Serve should 404.
 	resp, _ = http.Get(ts.URL + "/api/storage/testbucket/delete-me.txt")
-	testutil.Equal(t, http.StatusNotFound, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusNotFound, resp.StatusCode)
 	resp.Body.Close()
 }
 
@@ -138,19 +139,23 @@ func TestStorageList(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		body := &bytes.Buffer{}
 		w := multipart.NewWriter(body)
-		fw, _ := w.CreateFormFile("file", fmt.Sprintf("file%d.txt", i))
-		fw.Write([]byte(fmt.Sprintf("content %d", i)))
+		fw, err := w.CreateFormFile("file", fmt.Sprintf("file%d.txt", i))
+		testutil.NoError(t, err)
+		_, err = fw.Write([]byte(fmt.Sprintf("content %d", i)))
+		testutil.NoError(t, err)
 		w.Close()
-		resp, _ := http.Post(ts.URL+"/api/storage/listbucket", w.FormDataContentType(), body)
+		resp, err := http.Post(ts.URL+"/api/storage/listbucket", w.FormDataContentType(), body)
+		testutil.NoError(t, err)
+		testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 		resp.Body.Close()
 	}
 
 	resp, err := http.Get(ts.URL + "/api/storage/listbucket")
 	testutil.NoError(t, err)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 
 	var list map[string]any
-	json.NewDecoder(resp.Body).Decode(&list)
+	testutil.NoError(t, json.NewDecoder(resp.Body).Decode(&list))
 	resp.Body.Close()
 
 	testutil.Equal(t, float64(3), list["totalItems"].(float64))
@@ -169,17 +174,19 @@ func TestStorageSignedURL(t *testing.T) {
 	fw.Write([]byte("signed content"))
 	w.Close()
 
-	resp, _ := http.Post(ts.URL+"/api/storage/signbucket", w.FormDataContentType(), body)
+	resp, err := http.Post(ts.URL+"/api/storage/signbucket", w.FormDataContentType(), body)
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	resp.Body.Close()
 
 	// Generate signed URL.
 	signBody := bytes.NewReader([]byte(`{"expiresIn": 3600}`))
-	resp, err := http.Post(ts.URL+"/api/storage/signbucket/signed.txt/sign", "application/json", signBody)
+	resp, err = http.Post(ts.URL+"/api/storage/signbucket/signed.txt/sign", "application/json", signBody)
 	testutil.NoError(t, err)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 
 	var signResp map[string]string
-	json.NewDecoder(resp.Body).Decode(&signResp)
+	testutil.NoError(t, json.NewDecoder(resp.Body).Decode(&signResp))
 	resp.Body.Close()
 
 	signedURL := signResp["url"]
@@ -188,7 +195,7 @@ func TestStorageSignedURL(t *testing.T) {
 	// Fetch via signed URL.
 	resp, err = http.Get(ts.URL + signedURL)
 	testutil.NoError(t, err)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	got, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	testutil.Equal(t, "signed content", string(got))

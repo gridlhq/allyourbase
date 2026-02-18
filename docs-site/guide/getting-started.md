@@ -13,7 +13,7 @@ curl -fsSL https://allyourbase.io/install.sh | sh
 ### Homebrew
 
 ```bash
-brew install allyourbase/tap/ayb
+brew install gridlhq/tap/ayb
 ```
 
 ### Go
@@ -42,6 +42,10 @@ ayb start
 
 AYB will download and manage its own PostgreSQL instance automatically. No database setup needed.
 
+::: info First run
+The very first `ayb start` downloads a PostgreSQL binary (~70MB). This is a one-time download — subsequent starts take ~300ms.
+:::
+
 When you run `ayb start` for the first time, it will generate a random admin password and display it in the console:
 
 ```
@@ -49,7 +53,7 @@ Admin password: a1b2c3d4e5f6...
 To reset: ayb admin reset-password
 ```
 
-Save this password — you'll need it to access the admin dashboard at `http://localhost:8090/admin`.
+Save this password — you'll need it to access the admin dashboard at `http://localhost:8090/admin`. If you lose it, run `ayb admin reset-password` to generate a new one.
 
 ### External PostgreSQL
 
@@ -103,6 +107,20 @@ Or use the admin dashboard SQL editor at `http://localhost:8090/admin`.
 curl http://localhost:8090/api/collections/posts
 ```
 
+**Response:**
+
+```json
+{
+  "items": [],
+  "page": 1,
+  "perPage": 20,
+  "totalItems": 0,
+  "totalPages": 0
+}
+```
+
+The table is empty, so `items` is an empty array (never `null`).
+
 ### Create a record
 
 ```bash
@@ -111,16 +129,60 @@ curl -X POST http://localhost:8090/api/collections/posts \
   -d '{"title": "Hello World", "body": "My first post", "published": true}'
 ```
 
+**Response** (201 Created):
+
+```json
+{
+  "id": 1,
+  "title": "Hello World",
+  "body": "My first post",
+  "published": true,
+  "created_at": "2026-02-17T12:00:00Z"
+}
+```
+
+The full row is returned, including server-generated fields like `id` and `created_at`.
+
 ### Filter and sort
 
 ```bash
-curl "http://localhost:8090/api/collections/posts?filter=published=true&sort=-created_at"
+curl "http://localhost:8090/api/collections/posts?filter=title='Hello World'&sort=-created_at"
 ```
+
+**Response:**
+
+```json
+{
+  "items": [
+    { "id": 1, "title": "Hello World", "body": "My first post", "published": true, "created_at": "2026-02-17T12:00:00Z" }
+  ],
+  "page": 1,
+  "perPage": 20,
+  "totalItems": 1,
+  "totalPages": 1
+}
+```
+
+::: tip Boolean filters
+Boolean filters like `filter=published=true` work but the double `=` can look confusing in a URL. For string columns, wrap values in single quotes: `filter=title='Hello World'`.
+:::
 
 ### Get a single record
 
 ```bash
 curl http://localhost:8090/api/collections/posts/1
+```
+
+**Response:**
+
+```json
+{
+  "id": 1,
+  "title": "Hello World",
+  "body": "My first post",
+  "published": true,
+  "created_at": "2026-02-17T12:00:00Z"
+}
 ```
 
 ## Use the JavaScript SDK
@@ -145,9 +207,16 @@ const { items } = await ayb.records.list("posts", {
 console.log(items);
 ```
 
+::: tip Windows
+AYB runs on Windows via WSL2. Install WSL (`wsl --install`) then follow the Linux instructions above.
+:::
+
 ## Next steps
 
-- [Configuration](/guide/configuration) — Customize AYB with `ayb.toml`
+- [Authentication](/guide/authentication) — Add user auth, then protect data with RLS
+- [JavaScript SDK](/guide/javascript-sdk) — Build your frontend with the TypeScript SDK
+- [Deployment](/guide/deployment) — Deploy to production with Docker or bare metal
 - [REST API Reference](/guide/api-reference) — Full endpoint documentation
-- [Authentication](/guide/authentication) — Add user auth and RLS
-- [Quickstart: Todo App](/guide/quickstart) — Build a full app in 5 minutes
+- [Quickstart: Todo App](/guide/quickstart) — Build a full CRUD app in 5 minutes
+- [Comparison](/guide/comparison) — How AYB compares to PocketBase and Supabase
+- [Configuration](/guide/configuration) — Customize AYB with `ayb.toml`

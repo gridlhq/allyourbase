@@ -34,18 +34,16 @@ func TestIsAPIKey(t *testing.T) {
 	}
 }
 
-func TestAPIKeyPrefix(t *testing.T) {
-	testutil.Equal(t, APIKeyPrefix, "ayb_")
-}
+// TestAPIKeyPrefix removed — pure constant check, behaviorally covered by TestIsAPIKey.
 
 func TestAPIKeyConstants(t *testing.T) {
-	// Key should be ayb_ + 48 hex chars (24 random bytes) = 52 chars total.
-	testutil.Equal(t, apiKeyRawBytes, 24)
+	// Verify that a real generated key has the expected length (prefix + hex).
+	raw := make([]byte, apiKeyRawBytes)
+	_, err := rand.Read(raw)
+	testutil.NoError(t, err)
+	plaintext := APIKeyPrefix + hex.EncodeToString(raw)
+	testutil.Equal(t, 52, len(plaintext))
 	testutil.True(t, len(APIKeyPrefix) == 4, "prefix should be 4 chars")
-
-	// Verify the expected key length: prefix(4) + hex(48) = 52 chars.
-	expectedKeyLen := len(APIKeyPrefix) + apiKeyRawBytes*2
-	testutil.Equal(t, expectedKeyLen, 52)
 }
 
 func TestAPIKeyFormat(t *testing.T) {
@@ -55,13 +53,17 @@ func TestAPIKeyFormat(t *testing.T) {
 	testutil.NoError(t, err)
 
 	plaintext := APIKeyPrefix + hex.EncodeToString(raw)
-	testutil.Equal(t, len(plaintext), 52)
+	testutil.Equal(t, 52, len(plaintext))
 	testutil.True(t, IsAPIKey(plaintext), "generated key should pass IsAPIKey")
 
-	// Key prefix is first 12 chars.
-	prefix := plaintext[:12]
-	testutil.Equal(t, len(prefix), 12)
-	testutil.True(t, prefix[:4] == "ayb_", "prefix should start with ayb_")
+	// Key should start with "ayb_" prefix.
+	testutil.True(t, plaintext[:4] == "ayb_", "key should start with ayb_")
+	// Remaining 48 chars should be hex (lowercase letters and digits).
+	hexPart := plaintext[4:]
+	for _, c := range hexPart {
+		testutil.True(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'),
+			"hex part should only contain hex chars, got %c", c)
+	}
 }
 
 func TestAPIKeyUniqueness(t *testing.T) {
@@ -116,11 +118,8 @@ func TestValidScopes(t *testing.T) {
 	testutil.True(t, !ValidScopes["READONLY"], "uppercase should not be valid")
 }
 
-func TestScopeConstants(t *testing.T) {
-	testutil.Equal(t, ScopeFullAccess, "*")
-	testutil.Equal(t, ScopeReadOnly, "readonly")
-	testutil.Equal(t, ScopeReadWrite, "readwrite")
-}
+// TestScopeConstants removed — pure constant checks, behaviorally covered by
+// TestClaimsIsReadAllowed, TestClaimsIsWriteAllowed, TestCheckWriteScope.
 
 func TestClaimsIsReadAllowed(t *testing.T) {
 	tests := []struct {
@@ -137,7 +136,7 @@ func TestClaimsIsReadAllowed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Claims{APIKeyScope: tt.scope}
-			testutil.Equal(t, c.IsReadAllowed(), tt.want)
+			testutil.Equal(t, tt.want, c.IsReadAllowed())
 		})
 	}
 }
@@ -157,7 +156,7 @@ func TestClaimsIsWriteAllowed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Claims{APIKeyScope: tt.scope}
-			testutil.Equal(t, c.IsWriteAllowed(), tt.want)
+			testutil.Equal(t, tt.want, c.IsWriteAllowed())
 		})
 	}
 }
@@ -180,7 +179,7 @@ func TestClaimsIsTableAllowed(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := &Claims{AllowedTables: tt.tables}
-			testutil.Equal(t, c.IsTableAllowed(tt.table), tt.want)
+			testutil.Equal(t, tt.want, c.IsTableAllowed(tt.table))
 		})
 	}
 }
@@ -201,7 +200,7 @@ func TestCheckWriteScope(t *testing.T) {
 	// Readonly should fail
 	err := CheckWriteScope(&Claims{APIKeyScope: "readonly"})
 	testutil.True(t, err != nil, "readonly should deny writes")
-	testutil.Equal(t, err, ErrScopeReadOnly)
+	testutil.Equal(t, ErrScopeReadOnly, err)
 }
 
 func TestCheckTableScope(t *testing.T) {
@@ -217,45 +216,15 @@ func TestCheckTableScope(t *testing.T) {
 	// Denied table should fail
 	err := CheckTableScope(&Claims{AllowedTables: []string{"posts"}}, "users")
 	testutil.True(t, err != nil, "denied table should fail")
-	testutil.Equal(t, err, ErrScopeTableDenied)
+	testutil.Equal(t, ErrScopeTableDenied, err)
 }
 
-func TestAPIKeyListResultEmptyItems(t *testing.T) {
-	// Verify zero-value result has non-nil items after using the constructor pattern.
-	result := &APIKeyListResult{
-		Items:      []APIKey{},
-		Page:       1,
-		PerPage:    20,
-		TotalItems: 0,
-		TotalPages: 0,
-	}
-	testutil.Equal(t, len(result.Items), 0)
-	testutil.Equal(t, result.Page, 1)
-	testutil.NotNil(t, result.Items) // not nil, just empty slice
-}
-
-func TestAPIKeyListResultPaginationStruct(t *testing.T) {
-	// Verify that APIKeyListResult carries pagination fields correctly.
-	result := &APIKeyListResult{
-		Items:      []APIKey{{ID: "a"}, {ID: "b"}},
-		Page:       2,
-		PerPage:    10,
-		TotalItems: 25,
-		TotalPages: 3,
-	}
-	testutil.Equal(t, len(result.Items), 2)
-	testutil.Equal(t, result.Items[0].ID, "a")
-	testutil.Equal(t, result.Page, 2)
-	testutil.Equal(t, result.PerPage, 10)
-	testutil.Equal(t, result.TotalItems, 25)
-	testutil.Equal(t, result.TotalPages, 3)
-}
 
 func TestCheckWriteScopeInvalidScope(t *testing.T) {
 	// An unrecognized scope should deny writes (fail closed).
 	err := CheckWriteScope(&Claims{APIKeyScope: "bogus"})
 	testutil.True(t, err != nil, "invalid scope should deny writes")
-	testutil.Equal(t, err, ErrScopeReadOnly)
+	testutil.Equal(t, ErrScopeReadOnly, err)
 }
 
 func TestCheckTableScopeCaseSensitive(t *testing.T) {
@@ -265,12 +234,6 @@ func TestCheckTableScopeCaseSensitive(t *testing.T) {
 	testutil.True(t, !c.IsTableAllowed("posts"), "lowercase should not match uppercase restriction")
 }
 
-func TestCreateAPIKeyOptionsDefaults(t *testing.T) {
-	// Verify zero-value opts uses expected defaults.
-	opts := CreateAPIKeyOptions{}
-	testutil.Equal(t, opts.Scope, "")       // empty means caller should default to "*"
-	testutil.True(t, opts.AllowedTables == nil, "nil means all tables")
-}
 
 func TestIsAPIKeyLengthBoundary(t *testing.T) {
 	// Exactly the prefix length + 1 (minimum valid key).

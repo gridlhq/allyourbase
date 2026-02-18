@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/api"
@@ -32,8 +33,10 @@ type Server struct {
 	pool               *pgxpool.Pool
 	authSvc            *auth.Service          // nil when auth disabled
 	authRL             *auth.RateLimiter      // nil when auth disabled
+	adminRL            *auth.RateLimiter      // admin login rate limiter
 	hub                *realtime.Hub
 	webhookDispatcher  *webhooks.Dispatcher   // nil when pool is nil
+	adminMu            sync.RWMutex
 	adminAuth          *adminAuth             // nil when admin.password not set
 	startTime          time.Time
 	logBuffer          *LogBuffer             // nil when not using buffered logging
@@ -74,10 +77,18 @@ func New(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolde
 	}
 	if cfg.Admin.Password != "" {
 		s.adminAuth = newAdminAuth(cfg.Admin.Password)
+	} else if pool != nil {
+		logger.Warn("admin password not set — admin endpoints (SQL editor, RLS, user management) are unprotected. Set admin.password in ayb.toml for production use.")
 	}
+
+	// Admin login rate limiter (always created, independent of auth service).
+	s.adminRL = auth.NewRateLimiter(5, time.Minute) // 5 attempts/min per IP
 
 	// Health check (no content-type restriction).
 	r.Get("/health", s.handleHealth)
+
+	// Favicon (prevent 404 errors in browser console).
+	r.Get("/favicon.ico", handleFavicon)
 
 	// OpenAPI spec (no auth, no content-type restriction).
 	r.Get("/api/openapi.yaml", handleOpenAPISpec)
@@ -85,14 +96,14 @@ func New(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolde
 	r.Route("/api", func(r chi.Router) {
 		// Admin auth endpoints (no content-type enforcement — login needs JSON, status is GET).
 		r.Get("/admin/status", s.handleAdminStatus)
-		r.Post("/admin/auth", s.handleAdminLogin)
+		r.With(s.adminRL.Middleware).Post("/admin/auth", s.handleAdminLogin)
 
 		// Admin SQL editor and RLS policy management (admin-auth gated, requires pool).
 		if pool != nil {
 			logger.Info("registering admin SQL and RLS routes")
 			r.Route("/admin/sql", func(r chi.Router) {
 				r.Use(s.requireAdminToken)
-				r.Post("/", handleAdminSQL(pool))
+				r.Post("/", handleAdminSQL(pool, schemaCache))
 			})
 
 			// Admin RLS policy management.
@@ -152,9 +163,22 @@ func New(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolde
 			storageHandler := storage.NewHandler(storageSvc, logger, cfg.Storage.MaxFileSizeBytes())
 			r.Route("/storage", func(r chi.Router) {
 				if authSvc != nil {
-					r.Use(auth.OptionalAuth(authSvc))
+					// Read operations: auth optional (supports signed URLs).
+					r.Group(func(r chi.Router) {
+						r.Use(auth.OptionalAuth(authSvc))
+						r.Get("/{bucket}", storageHandler.HandleList)
+						r.Get("/{bucket}/*", storageHandler.HandleServe)
+					})
+					// Write operations: admin or user auth required.
+					r.Group(func(r chi.Router) {
+						r.Use(s.requireAdminOrUserAuth(authSvc))
+						r.Post("/{bucket}", storageHandler.HandleUpload)
+						r.Delete("/{bucket}/*", storageHandler.HandleDelete)
+						r.Post("/{bucket}/{name}/sign", storageHandler.HandleSign)
+					})
+				} else {
+					r.Mount("/", storageHandler.Routes())
 				}
-				r.Mount("/", storageHandler.Routes())
 			})
 		}
 
@@ -178,18 +202,25 @@ func New(cfg *config.Config, logger *slog.Logger, schemaCache *schema.CacheHolde
 					authHandler.SetOAuthRedirectURL(cfg.Auth.OAuthRedirectURL)
 				}
 				authHandler.SetOAuthPublisher(hub)
+				if cfg.Auth.MagicLinkEnabled {
+					authHandler.SetMagicLinkEnabled(true)
+				}
 				rl := cfg.Auth.RateLimit
-			if rl <= 0 {
-				rl = 10
-			}
-			s.authRL = auth.NewRateLimiter(rl, time.Minute)
+				if rl <= 0 {
+					rl = 10
+				}
+				s.authRL = auth.NewRateLimiter(rl, time.Minute)
 				r.Route("/auth", func(r chi.Router) {
 					r.Use(s.authRL.Middleware)
 					r.Mount("/", authHandler.Routes())
 				})
 			}
 
-			r.Get("/schema", s.handleSchema)
+			if authSvc != nil {
+				r.With(s.requireAdminOrUserAuth(authSvc)).Get("/schema", s.handleSchema)
+			} else {
+				r.Get("/schema", s.handleSchema)
+			}
 
 			// Realtime SSE (handles its own auth for EventSource compatibility).
 			rtHandler := realtime.NewHandler(hub, pool, authSvc, schemaCache, logger)
@@ -294,6 +325,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	if s.authRL != nil {
 		s.authRL.Stop()
 	}
+	if s.adminRL != nil {
+		s.adminRL.Stop()
+	}
 	if s.webhookDispatcher != nil {
 		s.webhookDispatcher.Close()
 	}
@@ -303,6 +337,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func handleFavicon(w http.ResponseWriter, r *http.Request) {
+	// Return 204 No Content to prevent 404 errors in browser console.
+	// Browsers request /favicon.ico by default; we don't have one embedded.
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleOpenAPISpec(w http.ResponseWriter, r *http.Request) {

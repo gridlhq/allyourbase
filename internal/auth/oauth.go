@@ -41,20 +41,23 @@ type OAuthProviderConfig struct {
 }
 
 // Known provider configurations.
-var oauthProviders = map[string]OAuthProviderConfig{
-	"google": {
-		AuthURL:     "https://accounts.google.com/o/oauth2/v2/auth",
-		TokenURL:    "https://oauth2.googleapis.com/token",
-		UserInfoURL: "https://www.googleapis.com/oauth2/v2/userinfo",
-		Scopes:      []string{"openid", "email", "profile"},
-	},
-	"github": {
-		AuthURL:     "https://github.com/login/oauth/authorize",
-		TokenURL:    "https://github.com/login/oauth/access_token",
-		UserInfoURL: "https://api.github.com/user",
-		Scopes:      []string{"user:email"},
-	},
-}
+var (
+	oauthMu        sync.RWMutex
+	oauthProviders = map[string]OAuthProviderConfig{
+		"google": {
+			AuthURL:     "https://accounts.google.com/o/oauth2/v2/auth",
+			TokenURL:    "https://oauth2.googleapis.com/token",
+			UserInfoURL: "https://www.googleapis.com/oauth2/v2/userinfo",
+			Scopes:      []string{"openid", "email", "profile"},
+		},
+		"github": {
+			AuthURL:     "https://github.com/login/oauth/authorize",
+			TokenURL:    "https://github.com/login/oauth/access_token",
+			UserInfoURL: "https://api.github.com/user",
+			Scopes:      []string{"user:email"},
+		},
+	}
+)
 
 // defaultProviders stores the original provider configs for ResetProviderURLs.
 var defaultProviders = map[string]OAuthProviderConfig{
@@ -64,14 +67,26 @@ var defaultProviders = map[string]OAuthProviderConfig{
 
 // SetProviderURLs overrides the URLs for a provider (for testing).
 func SetProviderURLs(provider string, cfg OAuthProviderConfig) {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
 	oauthProviders[provider] = cfg
 }
 
 // ResetProviderURLs restores the default URLs for a provider.
 func ResetProviderURLs(provider string) {
+	oauthMu.Lock()
+	defer oauthMu.Unlock()
 	if orig, ok := defaultProviders[provider]; ok {
 		oauthProviders[provider] = orig
 	}
+}
+
+// getProviderConfig returns the config for a provider, protected by the read lock.
+func getProviderConfig(provider string) (OAuthProviderConfig, bool) {
+	oauthMu.RLock()
+	defer oauthMu.RUnlock()
+	pc, ok := oauthProviders[provider]
+	return pc, ok
 }
 
 // OAuthClientConfig holds the client credentials for one provider.
@@ -147,7 +162,7 @@ func (s *OAuthStateStore) Validate(token string) bool {
 
 // AuthorizationURL builds the URL to redirect the user to the OAuth provider.
 func AuthorizationURL(provider string, client OAuthClientConfig, redirectURI, state string) (string, error) {
-	pc, ok := oauthProviders[provider]
+	pc, ok := getProviderConfig(provider)
 	if !ok {
 		return "", fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
 	}
@@ -170,7 +185,7 @@ func AuthorizationURL(provider string, client OAuthClientConfig, redirectURI, st
 // ExchangeCode exchanges an authorization code for provider tokens,
 // then fetches user info from the provider.
 func ExchangeCode(ctx context.Context, provider string, client OAuthClientConfig, code, redirectURI string) (*OAuthUserInfo, error) {
-	pc, ok := oauthProviders[provider]
+	pc, ok := getProviderConfig(provider)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrOAuthNotConfigured, provider)
 	}

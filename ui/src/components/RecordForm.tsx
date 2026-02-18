@@ -1,4 +1,4 @@
-import { useState, useCallback, type FormEvent } from "react";
+import { useState, useCallback, useEffect, type FormEvent } from "react";
 import type { Column } from "../types";
 import { X, Dices } from "lucide-react";
 import { cn } from "../lib/utils";
@@ -27,7 +27,18 @@ export function RecordForm({
     for (const col of columns) {
       if (initialData && initialData[col.name] !== undefined && initialData[col.name] !== null) {
         const v = initialData[col.name];
-        init[col.name] = typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
+        if (col.type.startsWith("timestamp") && typeof v === "string") {
+          // datetime-local inputs need YYYY-MM-DDTHH:mm:ss format (no timezone)
+          const d = new Date(v);
+          if (!isNaN(d.getTime())) {
+            const pad = (n: number) => String(n).padStart(2, "0");
+            init[col.name] = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          } else {
+            init[col.name] = String(v);
+          }
+        } else {
+          init[col.name] = typeof v === "object" ? JSON.stringify(v, null, 2) : String(v);
+        }
       } else {
         init[col.name] = "";
       }
@@ -37,6 +48,18 @@ export function RecordForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [hints, setHints] = useState<Record<string, string>>({});
+
+  // Close on Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
 
   const setHint = useCallback((name: string, hint: string) => {
     setHints((prev) => ({ ...prev, [name]: hint }));
@@ -101,7 +124,7 @@ export function RecordForm({
           <h2 className="font-semibold">
             {mode === "create" ? "New Record" : "Edit Record"}
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded">
+          <button onClick={onClose} className="p-1 hover:bg-gray-100 rounded" aria-label="Close">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -214,7 +237,7 @@ function FieldInput({
 
   return (
     <div>
-      <label className="text-xs font-medium text-gray-600 block mb-1">
+      <label htmlFor={`field-${column.name}`} className="text-xs font-medium text-gray-600 block mb-1">
         {column.name}
         <span className="text-gray-300 font-normal ml-1.5">{column.type}</span>
         {!column.nullable && !column.default && (
@@ -227,6 +250,7 @@ function FieldInput({
 
       {isBoolean ? (
         <select
+          id={`field-${column.name}`}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           disabled={disabled}
@@ -241,6 +265,7 @@ function FieldInput({
         </select>
       ) : isEnum ? (
         <select
+          id={`field-${column.name}`}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           disabled={disabled}
@@ -259,6 +284,7 @@ function FieldInput({
       ) : isUuid ? (
         <div className="flex gap-1.5">
           <input
+            id={`field-${column.name}`}
             type="text"
             value={value}
             onChange={(e) => handleChange(e.target.value)}
@@ -276,6 +302,7 @@ function FieldInput({
               type="button"
               onClick={generateUuid}
               title="Generate random UUID"
+              aria-label="Generate random UUID"
               className="px-2 py-2 border rounded text-gray-500 hover:bg-gray-50 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <Dices className="w-4 h-4" />
@@ -284,6 +311,7 @@ function FieldInput({
         </div>
       ) : isText ? (
         <textarea
+          id={`field-${column.name}`}
           value={value}
           onChange={(e) => handleChange(e.target.value)}
           onBlur={handleBlur}
@@ -298,6 +326,7 @@ function FieldInput({
         />
       ) : (
         <input
+          id={`field-${column.name}`}
           type={inputType(column.type)}
           value={value}
           onChange={(e) => handleChange(e.target.value)}

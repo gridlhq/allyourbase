@@ -14,11 +14,14 @@ import (
 )
 
 func TestMapPGError(t *testing.T) {
+	constraintDoc := httputil.DocURL("/guide/api-reference#error-format")
+
 	tests := []struct {
 		name       string
 		err        error
 		wantCode   int
 		wantMsg    string
+		wantDocURL string
 		wantResult bool // true if mapPGError handled the error
 	}{
 		{
@@ -34,52 +37,66 @@ func TestMapPGError(t *testing.T) {
 			wantResult: true,
 		},
 		{
-			name:       "unique_violation returns 409",
+			name:       "raise_exception returns 400",
+			err:        &pgconn.PgError{Code: "P0001", Message: "age must be positive"},
+			wantCode:   http.StatusBadRequest,
+			wantMsg:    "age must be positive",
+			wantResult: true,
+		},
+		{
+			name:       "unique_violation returns 409 with doc_url",
 			err:        &pgconn.PgError{Code: "23505", ConstraintName: "users_email_key", Detail: "Key (email)=(a@b.com) already exists."},
 			wantCode:   http.StatusConflict,
 			wantMsg:    "unique constraint violation",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
-			name:       "foreign_key_violation returns 400",
+			name:       "foreign_key_violation returns 400 with doc_url",
 			err:        &pgconn.PgError{Code: "23503", ConstraintName: "posts_author_id_fkey", Detail: "Key (author_id)=(999) is not present in table users."},
 			wantCode:   http.StatusBadRequest,
 			wantMsg:    "foreign key violation",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
-			name:       "not_null_violation returns 400",
+			name:       "not_null_violation returns 400 with doc_url",
 			err:        &pgconn.PgError{Code: "23502", ColumnName: "title", Message: "null value in column \"title\""},
 			wantCode:   http.StatusBadRequest,
 			wantMsg:    "missing required value",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
-			name:       "check_violation returns 400",
+			name:       "check_violation returns 400 with doc_url",
 			err:        &pgconn.PgError{Code: "23514", ConstraintName: "positive_price", Detail: "Failing row contains (-1)."},
 			wantCode:   http.StatusBadRequest,
 			wantMsg:    "check constraint violation",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
-			name:       "invalid_text_representation uuid returns friendly hint",
+			name:       "invalid_text_representation uuid returns friendly hint with doc_url",
 			err:        &pgconn.PgError{Code: "22P02", Message: `invalid input syntax for type uuid: "4234234"`},
 			wantCode:   http.StatusBadRequest,
 			wantMsg:    "invalid uuid value \u2014 expected format: 550e8400-e29b-41d4-a716-446655440000",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
-			name:       "invalid_text_representation integer returns friendly hint",
+			name:       "invalid_text_representation integer returns friendly hint with doc_url",
 			err:        &pgconn.PgError{Code: "22P02", Message: `invalid input syntax for type integer: "abc"`},
 			wantCode:   http.StatusBadRequest,
 			wantMsg:    "invalid integer value \u2014 expected a whole number, e.g. 42",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
-			name:       "invalid_text_representation unknown type falls back",
+			name:       "invalid_text_representation unknown type falls back with doc_url",
 			err:        &pgconn.PgError{Code: "22P02", Message: "invalid input syntax for type sometype"},
 			wantCode:   http.StatusBadRequest,
 			wantMsg:    "invalid value: invalid input syntax for type sometype",
+			wantDocURL: constraintDoc,
 			wantResult: true,
 		},
 		{
@@ -98,16 +115,17 @@ func TestMapPGError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			w := httptest.NewRecorder()
 			result := mapPGError(w, tt.err)
-			testutil.Equal(t, result, tt.wantResult)
+			testutil.Equal(t, tt.wantResult, result)
 
 			if tt.wantResult {
-				testutil.Equal(t, w.Code, tt.wantCode)
+				testutil.Equal(t, tt.wantCode, w.Code)
 
 				var resp httputil.ErrorResponse
 				err := json.NewDecoder(w.Body).Decode(&resp)
 				testutil.NoError(t, err)
-				testutil.Equal(t, resp.Code, tt.wantCode)
-				testutil.Equal(t, resp.Message, tt.wantMsg)
+				testutil.Equal(t, tt.wantCode, resp.Code)
+				testutil.Equal(t, tt.wantMsg, resp.Message)
+				testutil.Equal(t, tt.wantDocURL, resp.DocURL)
 			}
 		})
 	}
@@ -157,7 +175,7 @@ func TestFriendlyTypeError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.pgMsg, func(t *testing.T) {
 			got := friendlyTypeError(tt.pgMsg)
-			testutil.Equal(t, got, tt.want)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }

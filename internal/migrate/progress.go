@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/allyourbase/ayb/internal/cli/ui"
 )
 
 // Phase represents a named migration phase (e.g., "Schema", "Data", "Auth").
@@ -63,14 +65,15 @@ func (r *CLIReporter) CompletePhase(phase Phase, totalItems int, elapsed time.Du
 	if totalItems == 0 {
 		label = "skipped"
 	}
-	fmt.Fprintf(r.w, "\r  [%d/%d] %-16s %-20s done  (%s)\n",
-		phase.Index, phase.Total, phase.Name, label, formatDuration(elapsed))
+	fmt.Fprintf(r.w, "\r  [%d/%d] %-16s %-20s %s  (%s)\n",
+		phase.Index, phase.Total, phase.Name, label,
+		ui.StyleSuccess.Render(ui.SymbolCheck), formatDuration(elapsed))
 }
 
 func (r *CLIReporter) Warn(msg string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	fmt.Fprintf(r.w, "  Warning: %s\n", msg)
+	fmt.Fprintf(r.w, "  %s %s\n", ui.StyleWarning.Render(ui.SymbolWarning), msg)
 }
 
 // NopReporter discards all progress updates (used in tests and --json mode).
@@ -242,24 +245,24 @@ func (v *ValidationSummary) PrintSummary(w io.Writer) {
 
 	allMatch := true
 	for _, row := range v.Rows {
-		match := "ok"
+		match := ui.StyleSuccess.Render(ui.SymbolCheck)
 		if row.SourceCount != row.TargetCount {
-			match = "MISMATCH"
+			match = ui.StyleError.Render("MISMATCH")
 			allMatch = false
 		}
-		fmt.Fprintf(w, "  %-16s %6d  ->  %6d  %s\n",
-			row.Label, row.SourceCount, row.TargetCount, match)
+		fmt.Fprintf(w, "  %-16s %6d  %s  %6d  %s\n",
+			row.Label, row.SourceCount, ui.SymbolArrow, row.TargetCount, match)
 	}
 	fmt.Fprintln(w)
 
 	if allMatch {
-		fmt.Fprintln(w, "  All counts match.")
+		fmt.Fprintf(w, "  %s All counts match.\n", ui.StyleSuccess.Render(ui.SymbolCheck))
 	}
 
 	if len(v.Warnings) > 0 {
-		fmt.Fprintln(w, "  Warnings:")
+		fmt.Fprintf(w, "  %s Warnings:\n", ui.StyleWarning.Render(ui.SymbolWarning))
 		for _, warn := range v.Warnings {
-			fmt.Fprintf(w, "    - %s\n", warn)
+			fmt.Fprintf(w, "    %s %s\n", ui.StyleWarning.Render(ui.SymbolArrow), warn)
 		}
 	}
 	fmt.Fprintln(w)

@@ -263,8 +263,21 @@ func TestDeliverConnectionError(t *testing.T) {
 	}}}
 	d := testDispatcher(lister)
 
-	// Should not panic; retries exhausted silently.
+	// Add a delivery store so we can verify delivery records.
+	ds := newMockDeliveryStore()
+	d.deliveryS = ds
+
 	d.processEvent(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{}})
+
+	// All retries should be recorded as failed deliveries.
+	testutil.Equal(t, maxRetries, len(ds.deliveries))
+	for _, del := range ds.deliveries {
+		testutil.Equal(t, false, del.Success)
+		testutil.Equal(t, 0, del.StatusCode)
+		testutil.Equal(t, "wh1", del.WebhookID)
+		testutil.True(t, del.Error != "", "error message should be recorded")
+		testutil.Contains(t, del.Error, "connect")
+	}
 }
 
 func TestListEnabledErrorSkipsDelivery(t *testing.T) {

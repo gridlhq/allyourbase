@@ -42,7 +42,7 @@ func TestNewMigratorValidation(t *testing.T) {
 			FirestoreExportPath: f,
 			DatabaseURL:         "postgres://localhost/test",
 		})
-		testutil.ErrorContains(t, err, "Firestore export path must be a directory")
+		testutil.ErrorContains(t, err, "firestore export path must be a directory")
 	})
 }
 
@@ -165,45 +165,34 @@ func TestAnalyzeFirestoreCounts(t *testing.T) {
 
 func TestAnalyzeCountsMatchMigrateFiltering(t *testing.T) {
 	// Verify that Analyze() counts only active email users for auth and OAuth,
-	// matching the migrateAuthUsers/migrateOAuthLinks filtering logic.
-	users := []FirebaseUser{
-		{LocalID: "u1", Email: "a@b.com", ProviderInfo: []ProviderInfo{
-			{ProviderID: "google.com", RawID: "g1", Email: "a@b.com"},
-		}},
-		{LocalID: "u2", Email: "b@b.com"}, // email user, no OAuth
-		{LocalID: "u3"},                    // anonymous — should be skipped
-		{LocalID: "u4", ProviderInfo: []ProviderInfo{ // phone-only — should be skipped
-			{ProviderID: "phone", RawID: "p1"},
-		}},
-		{LocalID: "u5", Email: "c@b.com", ProviderInfo: []ProviderInfo{ // email user with 2 OAuth providers
-			{ProviderID: "google.com", RawID: "g2"},
-			{ProviderID: "github.com", RawID: "gh1"},
-		}},
-		{LocalID: "u6", Email: "disabled@b.com", Disabled: true, ProviderInfo: []ProviderInfo{ // disabled — should be skipped
-			{ProviderID: "google.com", RawID: "g3"},
-		}},
+	// skipping anonymous, phone-only, and disabled users.
+	export := FirebaseAuthExport{
+		Users: []FirebaseUser{
+			{LocalID: "u1", Email: "a@b.com", ProviderInfo: []ProviderInfo{
+				{ProviderID: "google.com", RawID: "g1", Email: "a@b.com"},
+			}},
+			{LocalID: "u2", Email: "b@b.com"}, // email user, no OAuth
+			{LocalID: "u3"},                    // anonymous — should be skipped
+			{LocalID: "u4", ProviderInfo: []ProviderInfo{ // phone-only — should be skipped
+				{ProviderID: "phone", RawID: "p1"},
+			}},
+			{LocalID: "u5", Email: "c@b.com", ProviderInfo: []ProviderInfo{ // email user with 2 OAuth providers
+				{ProviderID: "google.com", RawID: "g2"},
+				{ProviderID: "github.com", RawID: "gh1"},
+			}},
+			{LocalID: "u6", Email: "disabled@b.com", Disabled: true, ProviderInfo: []ProviderInfo{ // disabled — should be skipped
+				{ProviderID: "google.com", RawID: "g3"},
+			}},
+		},
+		HashConfig: FirebaseHashConfig{Algorithm: "SCRYPT", Rounds: 8, MemCost: 14},
 	}
+	path := makeAuthExportFile(t, export)
 
-	// Count using the same logic as Analyze()
-	var authCount, oauthCount int
-	for _, u := range users {
-		if u.Disabled {
-			continue
-		}
-		if IsAnonymousUser(u) || IsPhoneOnlyUser(u) {
-			continue
-		}
-		if !IsEmailUser(u) {
-			continue
-		}
-		authCount++
-		for range OAuthProviders(u) {
-			oauthCount++
-		}
-	}
-
-	testutil.Equal(t, 3, authCount)  // u1, u2, u5 (u6 disabled)
-	testutil.Equal(t, 3, oauthCount) // u1:google, u5:google, u5:github (u6 skipped)
+	m := &Migrator{opts: MigrationOptions{AuthExportPath: path}}
+	report, err := m.Analyze(nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, 3, report.AuthUsers)  // u1, u2, u5 (u3 anon, u4 phone, u6 disabled)
+	testutil.Equal(t, 3, report.OAuthLinks) // u1:google, u5:google, u5:github (u6 skipped)
 }
 
 func TestPrintStats(t *testing.T) {

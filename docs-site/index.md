@@ -2,7 +2,7 @@
 layout: home
 
 hero:
-  name: AllYourBase
+  name: Allyourbase
   text: PostgreSQL backend in one binary
   tagline: "Auto-generated REST API. Auth. Realtime. File storage. Admin dashboard. Open source."
   actions:
@@ -65,7 +65,7 @@ curl -fsSL https://allyourbase.io/install.sh | sh
 **Homebrew**
 
 ```bash
-brew install allyourbase/tap/ayb
+brew install gridlhq/tap/ayb
 ```
 
 </div>
@@ -123,8 +123,17 @@ curl -X POST http://localhost:8090/api/collections/posts \
   -H "Content-Type: application/json" \
   -d '{"title": "Hello World", "published": true}'
 
-# List records with filtering
-curl "http://localhost:8090/api/collections/posts?filter=published=true&sort=-created_at"
+# List records
+curl "http://localhost:8090/api/collections/posts?sort=-created_at&perPage=10"
+```
+
+```json
+{
+  "items": [
+    { "id": 1, "title": "Hello World", "published": true, "created_at": "2026-02-17T12:00:00Z" }
+  ],
+  "page": 1, "perPage": 10, "totalItems": 1, "totalPages": 1
+}
 ```
 
 </div>
@@ -151,12 +160,12 @@ await ayb.records.create("posts", {
 
 // List with filtering and sorting
 const { items } = await ayb.records.list("posts", {
-  filter: "published=true",
+  filter: "title='Hello World'",
   sort: "-created_at",
 });
 
 // Realtime
-ayb.realtime.subscribe("posts", (event) => {
+ayb.realtime.subscribe(["posts"], (event) => {
   console.log(event.action, event.record);
 });
 ```

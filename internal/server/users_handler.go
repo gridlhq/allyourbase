@@ -43,6 +43,10 @@ func handleAdminDeleteUser(svc userManager) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "user id is required")
 			return
 		}
+		if !httputil.IsValidUUID(id) {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid user id format")
+			return
+		}
 
 		err := svc.DeleteUser(r.Context(), id)
 		if err != nil {

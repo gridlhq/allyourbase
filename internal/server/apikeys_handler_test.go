@@ -117,9 +117,9 @@ func (f *fakeAPIKeyManager) CreateAPIKey(_ context.Context, userID, name string,
 func sampleAPIKeys() []auth.APIKey {
 	now := time.Date(2026, 2, 10, 12, 0, 0, 0, time.UTC)
 	return []auth.APIKey{
-		{ID: "k1", UserID: "u1", Name: "CI/CD", KeyPrefix: "ayb_abc12345", Scope: "*", AllowedTables: []string{}, CreatedAt: now},
-		{ID: "k2", UserID: "u2", Name: "Backend", KeyPrefix: "ayb_def67890", Scope: "readwrite", AllowedTables: []string{"posts", "comments"}, CreatedAt: now},
-		{ID: "k3", UserID: "u1", Name: "Cron", KeyPrefix: "ayb_ghi11111", Scope: "readonly", AllowedTables: []string{}, CreatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000001", UserID: "00000000-0000-0000-0000-000000000011", Name: "CI/CD", KeyPrefix: "ayb_abc12345", Scope: "*", AllowedTables: []string{}, CreatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000002", UserID: "00000000-0000-0000-0000-000000000012", Name: "Backend", KeyPrefix: "ayb_def67890", Scope: "readwrite", AllowedTables: []string{"posts", "comments"}, CreatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000003", UserID: "00000000-0000-0000-0000-000000000013", Name: "Cron", KeyPrefix: "ayb_ghi11111", Scope: "readonly", AllowedTables: []string{}, CreatedAt: now},
 	}
 }
 
@@ -214,7 +214,7 @@ func TestAdminRevokeAPIKeySuccess(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/api-keys/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/k2", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/00000000-0000-0000-0000-000000000002", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -233,12 +233,27 @@ func TestAdminRevokeAPIKeyNotFound(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/api-keys/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/00000000-0000-0000-0000-000000000099", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusNotFound, w.Code)
 	testutil.Contains(t, w.Body.String(), "api key not found")
+}
+
+func TestAdminRevokeAPIKeyInvalidUUID(t *testing.T) {
+	mgr := &fakeAPIKeyManager{keys: sampleAPIKeys()}
+	handler := handleAdminRevokeAPIKey(mgr)
+
+	r := chi.NewRouter()
+	r.Delete("/api/admin/api-keys/{id}", handler)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/not-a-uuid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid api key id format")
 }
 
 func TestAdminRevokeAPIKeyNoID(t *testing.T) {
@@ -263,7 +278,7 @@ func TestAdminRevokeAPIKeyServiceError(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/api-keys/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/k1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/00000000-0000-0000-0000-000000000001", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -351,6 +366,12 @@ func TestAdminCreateAPIKeyInvalidJSON(t *testing.T) {
 	handler.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
+
+	var resp map[string]any
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	msg, ok := resp["message"].(string)
+	testutil.True(t, ok, "response should contain a 'message' string field")
+	testutil.Contains(t, msg, "invalid JSON")
 }
 
 func TestAdminCreateAPIKeyEmptyBody(t *testing.T) {
@@ -401,7 +422,7 @@ func TestAdminRevokeAlreadyRevokedKey(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/api-keys/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/k1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/api-keys/00000000-0000-0000-0000-000000000001", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
@@ -437,12 +458,12 @@ func TestAdminListAPIKeysPaginationClamp(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.APIKeyListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.PerPage, 100)
+	testutil.Equal(t, 100, result.PerPage)
 }
 
 func TestAdminListAPIKeysBeyondLastPage(t *testing.T) {
@@ -454,13 +475,13 @@ func TestAdminListAPIKeysBeyondLastPage(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.APIKeyListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, len(result.Items), 0)
-	testutil.Equal(t, result.TotalItems, 3)
+	testutil.Equal(t, 0, len(result.Items))
+	testutil.Equal(t, 3, result.TotalItems)
 }
 
 func TestAdminListAPIKeysNegativePage(t *testing.T) {
@@ -472,13 +493,13 @@ func TestAdminListAPIKeysNegativePage(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.APIKeyListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.Page, 1)
-	testutil.Equal(t, len(result.Items), 3)
+	testutil.Equal(t, 1, result.Page)
+	testutil.Equal(t, 3, len(result.Items))
 }
 
 func TestAdminListAPIKeysNonNumericParams(t *testing.T) {
@@ -490,14 +511,14 @@ func TestAdminListAPIKeysNonNumericParams(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.APIKeyListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.Page, 1)
-	testutil.Equal(t, result.PerPage, 20)
-	testutil.Equal(t, len(result.Items), 3)
+	testutil.Equal(t, 1, result.Page)
+	testutil.Equal(t, 20, result.PerPage)
+	testutil.Equal(t, 3, len(result.Items))
 }
 
 // --- Scoped API key tests ---
@@ -512,13 +533,13 @@ func TestAdminCreateAPIKeyWithReadonlyScope(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusCreated)
+	testutil.Equal(t, http.StatusCreated, w.Code)
 
 	var resp adminCreateAPIKeyResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	testutil.NoError(t, err)
-	testutil.Equal(t, resp.APIKey.Scope, "readonly")
-	testutil.Equal(t, len(resp.APIKey.AllowedTables), 0)
+	testutil.Equal(t, "readonly", resp.APIKey.Scope)
+	testutil.Equal(t, 0, len(resp.APIKey.AllowedTables))
 }
 
 func TestAdminCreateAPIKeyWithReadwriteScope(t *testing.T) {
@@ -531,12 +552,12 @@ func TestAdminCreateAPIKeyWithReadwriteScope(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusCreated)
+	testutil.Equal(t, http.StatusCreated, w.Code)
 
 	var resp adminCreateAPIKeyResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	testutil.NoError(t, err)
-	testutil.Equal(t, resp.APIKey.Scope, "readwrite")
+	testutil.Equal(t, "readwrite", resp.APIKey.Scope)
 }
 
 func TestAdminCreateAPIKeyWithAllowedTables(t *testing.T) {
@@ -549,15 +570,15 @@ func TestAdminCreateAPIKeyWithAllowedTables(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusCreated)
+	testutil.Equal(t, http.StatusCreated, w.Code)
 
 	var resp adminCreateAPIKeyResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	testutil.NoError(t, err)
-	testutil.Equal(t, resp.APIKey.Scope, "readwrite")
-	testutil.Equal(t, len(resp.APIKey.AllowedTables), 2)
-	testutil.Equal(t, resp.APIKey.AllowedTables[0], "posts")
-	testutil.Equal(t, resp.APIKey.AllowedTables[1], "comments")
+	testutil.Equal(t, "readwrite", resp.APIKey.Scope)
+	testutil.Equal(t, 2, len(resp.APIKey.AllowedTables))
+	testutil.Equal(t, "posts", resp.APIKey.AllowedTables[0])
+	testutil.Equal(t, "comments", resp.APIKey.AllowedTables[1])
 }
 
 func TestAdminCreateAPIKeyInvalidScope(t *testing.T) {
@@ -570,7 +591,7 @@ func TestAdminCreateAPIKeyInvalidScope(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusBadRequest)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "invalid scope")
 }
 
@@ -585,13 +606,13 @@ func TestAdminCreateAPIKeyDefaultScope(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusCreated)
+	testutil.Equal(t, http.StatusCreated, w.Code)
 
 	var resp adminCreateAPIKeyResponse
 	err := json.NewDecoder(w.Body).Decode(&resp)
 	testutil.NoError(t, err)
-	testutil.Equal(t, resp.APIKey.Scope, "*")
-	testutil.Equal(t, len(resp.APIKey.AllowedTables), 0)
+	testutil.Equal(t, "*", resp.APIKey.Scope)
+	testutil.Equal(t, 0, len(resp.APIKey.AllowedTables))
 }
 
 func TestAdminListAPIKeysShowsScope(t *testing.T) {
@@ -602,13 +623,13 @@ func TestAdminListAPIKeysShowsScope(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.APIKeyListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.Items[0].Scope, "*")
-	testutil.Equal(t, result.Items[1].Scope, "readwrite")
-	testutil.Equal(t, len(result.Items[1].AllowedTables), 2)
-	testutil.Equal(t, result.Items[2].Scope, "readonly")
+	testutil.Equal(t, "*", result.Items[0].Scope)
+	testutil.Equal(t, "readwrite", result.Items[1].Scope)
+	testutil.Equal(t, 2, len(result.Items[1].AllowedTables))
+	testutil.Equal(t, "readonly", result.Items[2].Scope)
 }

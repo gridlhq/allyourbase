@@ -130,7 +130,7 @@ func (h *Handler) resolveTable(w http.ResponseWriter, r *http.Request) *schema.T
 
 	// Check API key table restrictions.
 	if err := auth.CheckTableScope(auth.ClaimsFromContext(r.Context()), tableName); err != nil {
-		writeError(w, http.StatusForbidden, "api key does not have access to table: "+tableName)
+		writeErrorWithDoc(w, http.StatusForbidden, "api key does not have access to table: "+tableName, docURL("/guide/api-reference"))
 		return nil
 	}
 
@@ -140,7 +140,7 @@ func (h *Handler) resolveTable(w http.ResponseWriter, r *http.Request) *schema.T
 // requireWriteScope checks that the current API key scope permits write operations.
 func requireWriteScope(w http.ResponseWriter, r *http.Request) bool {
 	if err := auth.CheckWriteScope(auth.ClaimsFromContext(r.Context())); err != nil {
-		writeError(w, http.StatusForbidden, "api key scope does not permit write operations")
+		writeErrorWithDoc(w, http.StatusForbidden, "api key scope does not permit write operations", docURL("/guide/api-reference"))
 		return false
 	}
 	return true
@@ -475,13 +475,13 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	var filterArgs []any
 	if filterStr := q.Get("filter"); filterStr != "" {
 		if len(filterStr) > maxFilterLen {
-			writeError(w, http.StatusBadRequest, "filter expression too long")
+			writeErrorWithDoc(w, http.StatusBadRequest, "filter expression too long", docURL("/guide/api-reference#filter-syntax"))
 			return
 		}
 		var err error
 		filterSQL, filterArgs, err = parseFilter(tbl, filterStr)
 		if err != nil {
-			writeErrorWithDoc(w, http.StatusBadRequest, "invalid filter: "+err.Error(), docURL("/api/filtering"))
+			writeErrorWithDoc(w, http.StatusBadRequest, "invalid filter: "+err.Error(), docURL("/guide/api-reference#filter-syntax"))
 			return
 		}
 	}
@@ -491,7 +491,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	var searchArgs []any
 	if searchStr := strings.TrimSpace(q.Get("search")); searchStr != "" {
 		if len(searchStr) > maxSearchLen {
-			writeError(w, http.StatusBadRequest, "search term too long")
+			writeErrorWithDoc(w, http.StatusBadRequest, "search term too long", docURL("/guide/api-reference#full-text-search"))
 			return
 		}
 		// Search arg index starts after all filter args.
@@ -499,7 +499,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 		var err error
 		searchSQL, searchRank, searchArgs, err = buildSearchSQL(tbl, searchStr, argOffset)
 		if err != nil {
-			writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/api/search"))
+			writeErrorWithDoc(w, http.StatusBadRequest, "search not supported: "+err.Error(), docURL("/guide/api-reference#full-text-search"))
 			return
 		}
 	}

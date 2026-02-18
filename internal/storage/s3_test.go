@@ -26,7 +26,7 @@ func TestS3BackendKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := b.key(tt.aybBucket, tt.objectName)
-			testutil.Equal(t, got, tt.want)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }

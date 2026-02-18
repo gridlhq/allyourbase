@@ -67,8 +67,8 @@ func TestSchemaEndpointReturnsValidJSON(t *testing.T) {
 	w := httptest.NewRecorder()
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
-	testutil.Equal(t, w.Header().Get("Content-Type"), "application/json")
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	testutil.Equal(t, "application/json", w.Header().Get("Content-Type"))
 
 	// Should be valid JSON with tables.
 	var result schema.SchemaCache
@@ -99,8 +99,8 @@ func TestRealtimeSSEReceivesCreateEvent(t *testing.T) {
 	resp, err := http.Get(ts.URL + "/api/realtime?tables=users")
 	testutil.NoError(t, err)
 	defer resp.Body.Close()
-	testutil.Equal(t, resp.StatusCode, http.StatusOK)
-	testutil.Equal(t, resp.Header.Get("Content-Type"), "text/event-stream")
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	testutil.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
 
 	scanner := bufio.NewScanner(resp.Body)
 
@@ -113,13 +113,13 @@ func TestRealtimeSSEReceivesCreateEvent(t *testing.T) {
 			break
 		}
 	}
-	testutil.Equal(t, connected[0], "event: connected")
+	testutil.Equal(t, "event: connected", connected[0])
 
 	// Create a record via the API.
 	body, _ := json.Marshal(map[string]any{"name": "Charlie", "email": "charlie@example.com"})
 	createResp, err := http.Post(ts.URL+"/api/collections/users/", "application/json", bytes.NewReader(body))
 	testutil.NoError(t, err)
-	testutil.Equal(t, createResp.StatusCode, http.StatusCreated)
+	testutil.StatusCode(t, http.StatusCreated, createResp.StatusCode)
 	createResp.Body.Close()
 
 	// Read the create event from SSE with a timeout.
@@ -146,6 +146,46 @@ func TestRealtimeSSEReceivesCreateEvent(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for SSE create event")
 	}
+}
+
+// TestAdminStatsWithDBPool verifies that the stats endpoint includes DB pool
+// fields when a real database pool is available.
+func TestAdminStatsWithDBPool(t *testing.T) {
+	ctx := context.Background()
+	createIntegrationTestSchema(t, ctx)
+
+	logger := testutil.DiscardLogger()
+	ch := schema.NewCacheHolder(sharedPG.Pool, logger)
+	testutil.NoError(t, ch.Load(ctx))
+
+	cfg := config.Default()
+	cfg.Admin.Password = "testpass"
+	srv := server.New(cfg, logger, ch, sharedPG.Pool, nil, nil)
+
+	token := adminLogin(t, srv)
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/admin/stats/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	srv.Router().ServeHTTP(w, req)
+
+	testutil.StatusCode(t, http.StatusOK, w.Code)
+	var stats map[string]any
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
+
+	// With a real pool, DB stats should be present.
+	testutil.True(t, stats["db_pool_total"] != nil, "should have db_pool_total")
+	testutil.True(t, stats["db_pool_idle"] != nil, "should have db_pool_idle")
+	testutil.True(t, stats["db_pool_in_use"] != nil, "should have db_pool_in_use")
+	testutil.True(t, stats["db_pool_max"] != nil, "should have db_pool_max")
+
+	// Pool max should be positive.
+	maxConns := stats["db_pool_max"].(float64)
+	testutil.True(t, maxConns > 0, "db_pool_max should be positive")
+
+	// Standard fields should also be present.
+	testutil.True(t, stats["go_version"] != nil, "should have go_version")
+	testutil.True(t, stats["goroutines"] != nil, "should have goroutines")
 }
 
 // TestRealtimeSSEDoesNotReceiveUnsubscribedTable verifies that SSE clients
@@ -186,13 +226,19 @@ func TestRealtimeSSEDoesNotReceiveUnsubscribedTable(t *testing.T) {
 	}
 
 	// Create a log record (not subscribed).
-	body, _ := json.Marshal(map[string]any{"message": "hello"})
-	cr, _ := http.Post(ts.URL+"/api/collections/logs/", "application/json", bytes.NewReader(body))
+	body, err := json.Marshal(map[string]any{"message": "hello"})
+	testutil.NoError(t, err)
+	cr, err := http.Post(ts.URL+"/api/collections/logs/", "application/json", bytes.NewReader(body))
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusCreated, cr.StatusCode)
 	cr.Body.Close()
 
 	// Create a user record (subscribed).
-	body, _ = json.Marshal(map[string]any{"name": "Dave"})
-	cr, _ = http.Post(ts.URL+"/api/collections/users/", "application/json", bytes.NewReader(body))
+	body, err = json.Marshal(map[string]any{"name": "Dave"})
+	testutil.NoError(t, err)
+	cr, err = http.Post(ts.URL+"/api/collections/users/", "application/json", bytes.NewReader(body))
+	testutil.NoError(t, err)
+	testutil.StatusCode(t, http.StatusCreated, cr.StatusCode)
 	cr.Body.Close()
 
 	// The next event should be for users, not logs.

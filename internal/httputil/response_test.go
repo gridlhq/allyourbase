@@ -226,6 +226,35 @@ func TestWriteErrorDocURLInRawJSON(t *testing.T) {
 	}
 }
 
+func TestIsValidUUID(t *testing.T) {
+	valid := []string{
+		"00000000-0000-0000-0000-000000000000",
+		"550e8400-e29b-41d4-a716-446655440000",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		"F47AC10B-58CC-4372-A567-0E02B2C3D479",
+	}
+	for _, s := range valid {
+		if !IsValidUUID(s) {
+			t.Errorf("expected %q to be valid UUID", s)
+		}
+	}
+
+	invalid := []string{
+		"",
+		"not-a-uuid",
+		"nonexistent-id",
+		"550e8400e29b41d4a716446655440000",  // no hyphens
+		"550e8400-e29b-41d4-a716-44665544000", // too short
+		"550e8400-e29b-41d4-a716-4466554400000", // too long
+		"gggggggg-gggg-gggg-gggg-gggggggggggg", // not hex
+	}
+	for _, s := range invalid {
+		if IsValidUUID(s) {
+			t.Errorf("expected %q to be invalid UUID", s)
+		}
+	}
+}
+
 func TestMaxBodySizeConstant(t *testing.T) {
 	if MaxBodySize != 1<<20 {
 		t.Fatalf("expected 1MB (1048576), got %d", MaxBodySize)

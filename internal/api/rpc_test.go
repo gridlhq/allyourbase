@@ -106,6 +106,8 @@ func TestBuildRPCCallScalar(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Contains(t, query, `SELECT "public"."add_numbers"($1::integer, $2::integer)`)
 	testutil.Equal(t, 2, len(args))
+	testutil.Equal(t, 1, args[0])
+	testutil.Equal(t, 2, args[1])
 }
 
 func TestBuildRPCCallSetReturning(t *testing.T) {
@@ -122,6 +124,7 @@ func TestBuildRPCCallSetReturning(t *testing.T) {
 	testutil.NoError(t, err)
 	testutil.Contains(t, query, `SELECT * FROM "public"."get_users"($1::integer)`)
 	testutil.Equal(t, 1, len(args))
+	testutil.Equal(t, 18, args[0])
 }
 
 func TestBuildRPCCallNoArgs(t *testing.T) {
@@ -174,6 +177,7 @@ func TestCoerceRPCArgIntegerArray(t *testing.T) {
 	testutil.True(t, ok, "expected []int32")
 	testutil.Equal(t, 3, len(arr))
 	testutil.Equal(t, int32(1), arr[0])
+	testutil.Equal(t, int32(2), arr[1])
 	testutil.Equal(t, int32(3), arr[2])
 }
 
@@ -183,6 +187,7 @@ func TestCoerceRPCArgTextArray(t *testing.T) {
 	testutil.True(t, ok, "expected []string")
 	testutil.Equal(t, 2, len(arr))
 	testutil.Equal(t, "a", arr[0])
+	testutil.Equal(t, "b", arr[1])
 }
 
 func TestCoerceRPCArgIntegerScalar(t *testing.T) {

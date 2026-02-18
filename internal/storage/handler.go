@@ -36,11 +36,11 @@ func NewHandler(svc *Service, logger *slog.Logger, maxFileSize int64) *Handler {
 // Routes returns a chi.Router with storage endpoints mounted.
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Get("/{bucket}", h.handleList)
-	r.Post("/{bucket}", h.handleUpload)
-	r.Get("/{bucket}/*", h.handleServe)
-	r.Delete("/{bucket}/*", h.handleDelete)
-	r.Post("/{bucket}/{name}/sign", h.handleSign)
+	r.Get("/{bucket}", h.HandleList)
+	r.Post("/{bucket}", h.HandleUpload)
+	r.Get("/{bucket}/*", h.HandleServe)
+	r.Delete("/{bucket}/*", h.HandleDelete)
+	r.Post("/{bucket}/{name}/sign", h.HandleSign)
 	return r
 }
 
@@ -49,7 +49,7 @@ type listResponse struct {
 	TotalItems int      `json:"totalItems"`
 }
 
-func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleList(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	prefix := r.URL.Query().Get("prefix")
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
@@ -71,7 +71,7 @@ func (h *Handler) handleList(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusOK, listResponse{Items: objects, TotalItems: total})
 }
 
-func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleUpload(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 
 	// Limit request body size.
@@ -79,14 +79,14 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	if err := r.ParseMultipartForm(h.maxFileSize); err != nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid multipart form or file too large",
-			"https://allyourbase.io/guide/storage")
+			"https://allyourbase.io/guide/file-storage")
 		return
 	}
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "missing \"file\" field in multipart form",
-			"https://allyourbase.io/guide/storage")
+			"https://allyourbase.io/guide/file-storage")
 		return
 	}
 	defer file.Close()
@@ -129,7 +129,7 @@ func (h *Handler) handleUpload(w http.ResponseWriter, r *http.Request) {
 	httputil.WriteJSON(w, http.StatusCreated, obj)
 }
 
-func (h *Handler) handleServe(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleServe(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	name := chi.URLParam(r, "*")
 
@@ -138,7 +138,7 @@ func (h *Handler) handleServe(w http.ResponseWriter, r *http.Request) {
 		exp := r.URL.Query().Get("exp")
 		if !h.svc.ValidateSignedURL(bucket, name, exp, sig) {
 			httputil.WriteErrorWithDocURL(w, http.StatusForbidden, "invalid or expired signed URL",
-			"https://allyourbase.io/guide/storage")
+			"https://allyourbase.io/guide/file-storage")
 			return
 		}
 		// Signed URL is valid — serve the file without further auth checks.
@@ -266,7 +266,7 @@ func getQuery(q map[string][]string, key string) string {
 	return ""
 }
 
-func (h *Handler) handleDelete(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleDelete(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	name := chi.URLParam(r, "*")
 
@@ -291,7 +291,7 @@ type signResponse struct {
 	URL string `json:"url"`
 }
 
-func (h *Handler) handleSign(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleSign(w http.ResponseWriter, r *http.Request) {
 	bucket := chi.URLParam(r, "bucket")
 	name := chi.URLParam(r, "name")
 
@@ -306,7 +306,7 @@ func (h *Handler) handleSign(w http.ResponseWriter, r *http.Request) {
 	}
 	if expiry > 7*24*time.Hour {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "expiresIn must not exceed 604800 (7 days)",
-			"https://allyourbase.io/guide/storage")
+			"https://allyourbase.io/guide/file-storage")
 		return
 	}
 

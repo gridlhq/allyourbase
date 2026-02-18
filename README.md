@@ -1,84 +1,101 @@
 # 👾 Allyourbase
 
-[![CI](https://github.com/gridlhq/allyourbase/actions/workflows/ci.yml/badge.svg)](https://github.com/gridlhq/allyourbase/actions/workflows/ci.yml)
-[![Release](https://github.com/gridlhq/allyourbase/actions/workflows/release.yml/badge.svg)](https://github.com/gridlhq/allyourbase/releases)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Status: Beta](https://img.shields.io/badge/Status-Beta-orange)](https://github.com/gridlhq/allyourbase)
+Open-source backend for PostgreSQL. Single binary. Auto-generated REST API, auth, realtime, storage, admin dashboard.
 
-Backend-as-a-Service for PostgreSQL. Single binary, zero config, auto-generated REST API + admin dashboard.
+Like PocketBase, but Postgres.
 
 ```bash
-curl -fsSL https://install.allyourbase.io | sh
-```
-
-## Quickstart
-
-Start the server (built-in Postgres, nothing else to install):
-
-```bash
+curl -fsSL https://allyourbase.io/install.sh | sh
 ayb start
 ```
 
-Create a table via SQL:
+No Docker. No config. On first run, AYB downloads a prebuilt PostgreSQL binary for your platform and manages it as a child process — no system install required.
+
+## Who is this for?
+
+- **Indie devs and small teams** who want a full backend without managing infrastructure. One binary, one command, done.
+- **AI-first projects** building with Claude Code, Cursor, or Windsurf. The built-in MCP server gives AI tools direct access to your backend.
+- **PocketBase graduates** who hit the SQLite ceiling and need Postgres — concurrent writes, RLS, extensions, horizontal scaling — without rewriting everything.
+
+## Quickstart
+
+Create a table:
 
 ```bash
-ayb sql "CREATE TABLE posts (id serial PRIMARY KEY, title text NOT NULL, body text, created_at timestamptz DEFAULT now())"
+ayb sql "CREATE TABLE posts (
+  id serial PRIMARY KEY,
+  title text NOT NULL,
+  body text,
+  created_at timestamptz DEFAULT now()
+)"
 ```
 
-REST API is auto-generated. Create a record:
+You now have a full REST API:
 
 ```bash
+# Create
 curl -X POST http://localhost:8090/api/collections/posts \
   -H "Content-Type: application/json" \
   -d '{"title": "Hello world", "body": "First post"}'
-```
 
-```json
-{
-  "id": 1,
-  "title": "Hello world",
-  "body": "First post",
-  "created_at": "2025-01-15T10:30:00Z"
-}
-```
-
-List records:
-
-```bash
-curl http://localhost:8090/api/collections/posts
-```
-
-```json
-{
-  "items": [
-    {"id": 1, "title": "Hello world", "body": "First post", "created_at": "2025-01-15T10:30:00Z"}
-  ],
-  "page": 1,
-  "perPage": 20,
-  "totalItems": 1,
-  "totalPages": 1
-}
-```
-
-Every table gets full CRUD + filtering, sorting, pagination, full-text search.
-
-```bash
-# Filter and sort
-curl 'http://localhost:8090/api/collections/posts?filter=title="Hello world"&sort=-created_at'
+# List (with sort, pagination)
+curl 'http://localhost:8090/api/collections/posts?sort=-created_at&perPage=10'
 
 # Admin dashboard
 open http://localhost:8090/admin
 ```
 
-## Point at existing Postgres
+Every table gets CRUD, filtering, sorting, pagination, full-text search, and FK expansion.
+
+## Migration
+
+Coming from another platform? Import your users, data, and policies:
 
 ```bash
-ayb start --database-url postgresql://user:pass@localhost:5432/mydb
+# PocketBase — point at your pb_data directory
+ayb start --from ./pb_data
+
+# Supabase
+ayb migrate supabase --source-url postgres://...supabase... --database-url postgres://localhost/mydb
+
+# Firebase
+ayb migrate firebase --auth-export users.json --firestore-export firestore.json --database-url postgres://localhost/mydb
 ```
 
-Schema introspection on startup. Existing tables → instant API endpoints.
+Imports users (with password hashes), data, OAuth providers, and RLS policies.
 
-## TypeScript SDK
+## Features
+
+- **REST API** — CRUD for every table. Filter, sort, paginate, full-text search, FK expand.
+- **Auth** — email/password, JWT, OAuth (Google/GitHub), email verify, password reset
+- **Realtime** — SSE subscriptions per table, filtered by RLS
+- **Row-Level Security** — JWT claims mapped to Postgres session vars. Write policies in SQL.
+- **Storage** — local disk or S3-compatible (R2, MinIO, DO Spaces, AWS)
+- **Admin dashboard** — SQL editor, API explorer, schema browser, RLS manager, user management
+- **RPC** — call Postgres functions via `POST /api/rpc/{function}`
+- **Type generation** — `ayb types typescript` emits types from your schema
+- **Embedded Postgres** — zero external dependencies for development
+- **MCP server** — `ayb mcp` gives AI tools (Claude Code, Cursor, Windsurf) direct access to your schema, records, SQL, and RLS policies. 11 tools, 2 resources, 3 prompts.
+
+Your data lives in standard PostgreSQL. No lock-in — take your database and go.
+
+## Demos
+
+Three example apps ship in [`/examples`](examples/). Each takes ~2 minutes to set up.
+
+**[Live Polls](examples/live-polls/)** — real-time polling app. Create polls, vote, watch bar charts update live across all browsers via SSE. Shows off auth, RLS, realtime, and database RPC.
+
+**[Pixel Canvas](examples/pixel-canvas/)** — collaborative r/place clone. 100x100 grid, 16 colors, real-time pixel placement. Good stress test of SSE with many concurrent updates.
+
+**[Kanban Board](examples/kanban/)** — Trello-lite with drag-and-drop. Per-user boards via RLS, realtime sync across tabs.
+
+```bash
+cd examples/live-polls
+psql "postgresql://ayb:ayb@localhost:15432/ayb" -f schema.sql
+npm install && npm run dev
+```
+
+## SDK
 
 ```bash
 npm install @allyourbase/js
@@ -86,42 +103,36 @@ npm install @allyourbase/js
 
 ```typescript
 import { AYBClient } from "@allyourbase/js";
-
 const ayb = new AYBClient("http://localhost:8090");
 
-// CRUD with filters, sort, pagination
+// Records
 const { items } = await ayb.records.list("posts", {
   filter: "published=true",
   sort: "-created_at",
   expand: "author",
-  perPage: 50,
 });
-const post = await ayb.records.create("posts", { title: "Hello" });
+await ayb.records.create("posts", { title: "New post" });
 
 // Auth
 await ayb.auth.login("user@example.com", "password");
-const { user } = await ayb.auth.signInWithOAuth("google");
 
 // Realtime
-ayb.realtime.subscribe(["posts"], (e) => console.log(e.action, e.record));
+ayb.realtime.subscribe(["posts"], (e) => {
+  console.log(e.action, e.record);
+});
 ```
 
-## Features
+## Existing database
 
-- **REST API** — auto-generated CRUD for every table (filter, sort, paginate, full-text search, FK expand)
-- **Admin dashboard** — SQL editor, API explorer, schema browser, RLS manager, storage browser, user management
-- **Auth** — email/password, JWT, OAuth (Google/GitHub), email verify, password reset
-- **Storage** — local disk or S3-compatible (R2, MinIO, etc.), signed URLs
-- **Realtime** — Server-Sent Events, RLS-filtered table subscriptions
-- **RLS** — JWT claims → Postgres session vars for row-level security policies
-- **RPC** — call Postgres functions via `POST /api/rpc/{function}`
-- **Type generation** — `ayb types typescript` generates types from schema
-- **Embedded Postgres** — built-in, auto-downloaded, zero external dependencies
-- **MCP server** — `ayb mcp` for AI tool integration (Claude Code, Cursor, Windsurf)
+Point at any Postgres instance. Existing tables become API endpoints on startup.
 
-## Config (optional)
+```bash
+ayb start --database-url postgresql://user:pass@localhost:5432/mydb
+```
 
-Zero config by default. Customize via `ayb.toml`:
+## Config
+
+Zero config by default. Customize via `ayb.toml`, env vars (`AYB_` prefix), or CLI flags.
 
 ```toml
 [server]
@@ -134,74 +145,59 @@ url = "postgresql://user:pass@localhost:5432/mydb"
 enabled = true
 
 [storage]
-enabled = true
 backend = "s3"
 ```
 
-Precedence: **defaults → ayb.toml → env vars (`AYB_` prefix) → CLI flags**. Check resolved config: `ayb config`.
-
-## Migrating from other platforms
-
-```bash
-# From PocketBase
-ayb start --from ./pb_data
-
-# From Supabase
-ayb migrate supabase --source-url postgres://...supabase... --database-url postgres://localhost/mydb
-
-# From Firebase
-ayb migrate firebase --auth-export users.json --firestore-export firestore.json --database-url postgres://localhost/mydb
-```
-
-Migrations import users (with password hashes), data, OAuth providers, Firestore documents, and RLS policies.
+Precedence: defaults → `ayb.toml` → env vars → CLI flags. Check resolved config: `ayb config`.
 
 ## CLI
 
 ```
-ayb start        Start the server (embedded or external Postgres)
-ayb stop         Stop the server
-ayb status       Show server status
-ayb init <name>  Scaffold a new project
-ayb config       Print resolved config
-ayb migrate      Run migrations or import from another platform
-ayb sql          Execute SQL queries
-ayb schema       Inspect database schema
-ayb types        Generate TypeScript types
-ayb logs         View server logs
-ayb uninstall    Remove AYB from your system
+ayb start                Start server (embedded or external Postgres)
+ayb sql "..."            Execute SQL
+ayb schema [table]       Inspect database schema
+ayb migrate up           Apply pending migrations
+ayb migrate create       Create a new migration
+ayb migrate pocketbase   Import from PocketBase
+ayb admin reset-password Reset admin password
+ayb apikeys create       Create an API key
+ayb types typescript     Generate TypeScript types
+ayb mcp                  Start MCP server for AI tools
 ```
 
-## Comparison
+29 commands total. Run `ayb --help` or `ayb <command> --help` for the full list.
 
-| | PocketBase | Supabase (self-hosted) | AllYourBase |
+## vs. PocketBase vs. Supabase
+
+| | PocketBase | Supabase (self-hosted) | Allyourbase |
 |---|---|---|---|
 | Database | SQLite | PostgreSQL | PostgreSQL |
 | Deployment | Single binary | 10+ Docker containers | Single binary |
-| Configuration | One file | Dozens of env vars | One file (or none) |
+| Config | One file | Dozens of env vars | One file (or none) |
 | Row-level security | No | Yes | Yes |
 | Docker required | No | Yes | No |
+| AI/MCP server | No | No | Yes |
 
-## Deployment
-
-See [deployment guide](docs-site/guide/deployment.md) for systemd, Docker, and other deployment options.
+[Full comparison →](https://allyourbase.io/guide/comparison)
 
 ## Install options
 
 ```bash
-# Specific version
-curl -fsSL https://install.allyourbase.io | sh -s -- v0.1.0
+# Homebrew
+brew install gridlhq/tap/ayb
 
-# Custom directory
-AYB_INSTALL=/opt/ayb curl -fsSL https://install.allyourbase.io | sh
+# Docker
+docker run -p 8090:8090 ghcr.io/gridlhq/allyourbase
+
+# Go
+go install github.com/allyourbase/ayb/cmd/ayb@latest
 
 # From source
-git clone https://github.com/gridlhq/allyourbase.git
-cd allyourbase && make build
+git clone https://github.com/gridlhq/allyourbase.git && cd allyourbase && make build
 
-# Uninstall
-ayb uninstall
+# Specific version
+curl -fsSL https://allyourbase.io/install.sh | sh -s -- v0.1.0
 ```
-
 
 ## License
 

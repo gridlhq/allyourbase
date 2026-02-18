@@ -79,18 +79,18 @@ func TestTextColumns(t *testing.T) {
 	cols := textColumns(tbl)
 	// Should include title, body, status but not id, views, metadata, tags
 	testutil.SliceLen(t, cols, 3)
-	testutil.Equal(t, cols[0], "title")
-	testutil.Equal(t, cols[1], "body")
-	testutil.Equal(t, cols[2], "status")
+	testutil.Equal(t, "title", cols[0])
+	testutil.Equal(t, "body", cols[1])
+	testutil.Equal(t, "status", cols[2])
 }
 
 func TestBuildSearchSQL(t *testing.T) {
 	tbl := searchableTable()
 
 	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "hello world", 1)
-	testutil.True(t, err == nil, "expected no error")
+	testutil.NoError(t, err)
 	testutil.SliceLen(t, args, 1)
-	testutil.Equal(t, args[0].(string), "hello world")
+	testutil.Equal(t, "hello world", args[0].(string))
 
 	// WHERE should contain tsvector @@ tsquery
 	testutil.Contains(t, whereSQL, "to_tsvector('simple'")
@@ -110,7 +110,7 @@ func TestBuildSearchSQLWithOffset(t *testing.T) {
 
 	// Simulate filter already using $1, $2
 	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "test", 3)
-	testutil.True(t, err == nil, "expected no error")
+	testutil.NoError(t, err)
 	testutil.SliceLen(t, args, 1)
 	testutil.Contains(t, whereSQL, "$3")
 	testutil.Contains(t, rankSQL, "$3")
@@ -130,9 +130,9 @@ func TestBuildSearchSQLEmptyTerm(t *testing.T) {
 	// Empty search term should still produce valid SQL (handler guards against this,
 	// but buildSearchSQL itself should not panic or produce broken SQL).
 	whereSQL, rankSQL, args, err := buildSearchSQL(tbl, "", 1)
-	testutil.True(t, err == nil, "expected no error even for empty term")
+	testutil.NoError(t, err)
 	testutil.SliceLen(t, args, 1)
-	testutil.Equal(t, args[0].(string), "")
+	testutil.Equal(t, "", args[0].(string))
 	testutil.Contains(t, whereSQL, "@@")
 	testutil.Contains(t, rankSQL, "ts_rank(")
 }
@@ -166,9 +166,9 @@ func TestBuildListWithSearch(t *testing.T) {
 	testutil.Contains(t, dataQ, "LIMIT $2")
 	testutil.Contains(t, dataQ, "OFFSET $3")
 	testutil.SliceLen(t, dataArgs, 3) // search arg + limit + offset
-	testutil.Equal(t, dataArgs[0].(string), "hello")
-	testutil.Equal(t, dataArgs[1].(int), 20)
-	testutil.Equal(t, dataArgs[2].(int), 0)
+	testutil.Equal(t, "hello", dataArgs[0].(string))
+	testutil.Equal(t, 20, dataArgs[1].(int))
+	testutil.Equal(t, 0, dataArgs[2].(int))
 
 	// Count query should also have WHERE
 	testutil.Contains(t, countQ, "WHERE")
@@ -198,16 +198,16 @@ func TestBuildListWithFilterAndSearch(t *testing.T) {
 	testutil.Contains(t, dataQ, "LIMIT $3")
 	testutil.Contains(t, dataQ, "OFFSET $4")
 	testutil.SliceLen(t, dataArgs, 4) // filter arg + search arg + limit + offset
-	testutil.Equal(t, dataArgs[0].(string), "published")
-	testutil.Equal(t, dataArgs[1].(string), "hello")
-	testutil.Equal(t, dataArgs[2].(int), 10)  // perPage
-	testutil.Equal(t, dataArgs[3].(int), 0)   // offset (page 1)
+	testutil.Equal(t, "published", dataArgs[0].(string))
+	testutil.Equal(t, "hello", dataArgs[1].(string))
+	testutil.Equal(t, 10, dataArgs[2].(int))  // perPage
+	testutil.Equal(t, 0, dataArgs[3].(int))   // offset (page 1)
 
 	// Count query should combine filter AND search, with args in same order.
 	testutil.Contains(t, countQ, "AND")
 	testutil.SliceLen(t, countArgs, 2)
-	testutil.Equal(t, countArgs[0].(string), "published")
-	testutil.Equal(t, countArgs[1].(string), "hello")
+	testutil.Equal(t, "published", countArgs[0].(string))
+	testutil.Equal(t, "hello", countArgs[1].(string))
 }
 
 func TestBuildListSearchWithExplicitSort(t *testing.T) {

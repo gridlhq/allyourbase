@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -21,6 +22,6 @@ var versionCmd = &cobra.Command{
 			})
 			return
 		}
-		fmt.Printf("ayb %s (commit: %s, built: %s)\n", buildVersion, buildCommit, buildDate)
+		fmt.Printf("%s ayb %s (commit: %s, built: %s)\n", ui.BrandEmoji, buildVersion, buildCommit, buildDate)
 	},
 }

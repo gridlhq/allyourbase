@@ -16,7 +16,7 @@ DELETE /api/collections/{table}/{id}     Delete record
 ### List records
 
 ```bash
-curl "http://localhost:8090/api/collections/posts?filter=published=true&sort=-created_at&page=1&perPage=20"
+curl "http://localhost:8090/api/collections/posts?filter=status='active'&sort=-created_at&page=1&perPage=20"
 ```
 
 **Response:**
@@ -48,7 +48,7 @@ curl "http://localhost:8090/api/collections/posts?filter=published=true&sort=-cr
 
 ### Filter syntax
 
-Filters use a SQL-like syntax that is parameterized for safety:
+Filters use a safe, parameterized syntax. All values are bound as query parameters — no SQL injection risk.
 
 ```
 # Equality
@@ -58,16 +58,51 @@ Filters use a SQL-like syntax that is parameterized for safety:
 ?filter=age>21
 ?filter=price<=100
 
-# AND / OR
+# AND / OR (keywords or symbols)
 ?filter=status='active' AND category='tech'
 ?filter=role='admin' OR role='editor'
+?filter=status='active' && category='tech'
+?filter=role='admin' || role='editor'
 
-# NULL checks
-?filter=deleted_at IS NULL
+# NULL checks (use =null or !=null)
+?filter=deleted_at=null
+?filter=email!=null
 
-# LIKE
-?filter=name LIKE '%john%'
+# Pattern matching (use ~ for LIKE, !~ for NOT LIKE)
+?filter=name~'%john%'
+?filter=name!~'%admin%'
+
+# NOT equal
+?filter=status!='draft'
+
+# IN list
+?filter=status IN ('active','pending','review')
+
+# Grouping with parentheses
+?filter=(status='active' OR status='pending') AND category='tech'
+
+# Boolean and numeric values
+?filter=published=true
+?filter=age>21 AND score<=100
 ```
+
+#### Operator reference
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `=` | Equal (or `IS NULL` when value is `null`) | `status='active'` |
+| `!=` | Not equal (or `IS NOT NULL` when value is `null`) | `status!='draft'` |
+| `>` | Greater than | `age>21` |
+| `>=` | Greater than or equal | `score>=90` |
+| `<` | Less than | `price<100` |
+| `<=` | Less than or equal | `price<=50` |
+| `~` | LIKE (pattern match) | `name~'%john%'` |
+| `!~` | NOT LIKE | `name!~'%test%'` |
+| `IN` | In list | `status IN ('a','b')` |
+| `AND` / `&&` | Logical AND | `a='x' AND b='y'` |
+| `OR` / `\|\|` | Logical OR | `a='x' OR a='y'` |
+
+Values: strings in single quotes (`'hello'`), numbers (`42`, `3.14`), booleans (`true`, `false`), `null`.
 
 ### Full-text search
 
@@ -101,7 +136,7 @@ Results are automatically ranked by relevance when no explicit `sort` is provide
 Search can be combined with filters:
 
 ```bash
-curl "http://localhost:8090/api/collections/posts?search=postgres&filter=published=true&perPage=10"
+curl "http://localhost:8090/api/collections/posts?search=postgres&filter=status='active'&perPage=10"
 ```
 
 ::: tip Performance
@@ -179,6 +214,18 @@ curl -X POST http://localhost:8090/api/collections/posts \
 curl http://localhost:8090/api/collections/posts/42
 ```
 
+**Response:**
+
+```json
+{
+  "id": 42,
+  "title": "New Post",
+  "body": "Content",
+  "published": false,
+  "created_at": "2026-02-07T22:00:00Z"
+}
+```
+
 Supports `?fields=` and `?expand=` query parameters.
 
 ### Update a record
@@ -189,7 +236,19 @@ curl -X PATCH http://localhost:8090/api/collections/posts/42 \
   -d '{"published": true}'
 ```
 
-Only the specified fields are updated (partial update).
+**Response:**
+
+```json
+{
+  "id": 42,
+  "title": "New Post",
+  "body": "Content",
+  "published": true,
+  "created_at": "2026-02-07T22:00:00Z"
+}
+```
+
+Only the specified fields are updated (partial update). The full updated record is returned.
 
 ### Delete a record
 
@@ -207,7 +266,32 @@ If your `posts` table has an `author_id` column referencing `users(id)`:
 curl "http://localhost:8090/api/collections/posts?expand=author"
 ```
 
-The response includes the full related record nested under the FK column name.
+**Response:**
+
+```json
+{
+  "items": [
+    {
+      "id": 1,
+      "title": "Hello",
+      "author_id": 42,
+      "expand": {
+        "author": {
+          "id": 42,
+          "name": "Jane",
+          "email": "jane@example.com"
+        }
+      }
+    }
+  ],
+  "page": 1,
+  "perPage": 20,
+  "totalItems": 1,
+  "totalPages": 1
+}
+```
+
+Related records are nested under an `expand` key. For many-to-one relationships, the expanded value is a single object. For one-to-many, it's an array.
 
 ## Schema
 
@@ -231,9 +315,29 @@ All errors return a consistent JSON format:
 
 ```json
 {
-  "message": "collection not found: nonexistent"
+  "code": 404,
+  "message": "collection not found: nonexistent",
+  "doc_url": "https://allyourbase.io/guide/api-reference"
 }
 ```
+
+For validation errors (constraint violations), the response includes a `data` field with per-field detail:
+
+```json
+{
+  "code": 409,
+  "message": "unique constraint violation",
+  "data": {
+    "users_email_key": {
+      "code": "unique_violation",
+      "message": "Key (email)=(test@example.com) already exists."
+    }
+  },
+  "doc_url": "https://allyourbase.io/guide/api-reference#error-format"
+}
+```
+
+The `doc_url` field links to relevant documentation when available.
 
 Common HTTP status codes:
 

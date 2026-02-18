@@ -43,7 +43,7 @@ func (h *Handler) handleCreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if err == ErrInvalidScope {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, err.Error(),
-				"https://allyourbase.io/guide/api-keys")
+				"https://allyourbase.io/guide/api-reference")
 			return
 		}
 		h.logger.Error("create api key error", "error", err)
@@ -81,6 +81,10 @@ func (h *Handler) handleRevokeAPIKey(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 	if id == "" {
 		httputil.WriteError(w, http.StatusBadRequest, "api key id is required")
+		return
+	}
+	if !httputil.IsValidUUID(id) {
+		httputil.WriteError(w, http.StatusBadRequest, "invalid api key id format")
 		return
 	}
 

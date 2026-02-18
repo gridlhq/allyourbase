@@ -25,6 +25,7 @@ type Config struct {
 type ServerConfig struct {
 	Host            string   `toml:"host"`
 	Port            int      `toml:"port"`
+	SiteURL         string   `toml:"site_url"` // public base URL for email action links (e.g. "https://myapp.example.com")
 	CORSAllowedOrigins []string `toml:"cors_allowed_origins"`
 	BodyLimit       string   `toml:"body_limit"`
 	ShutdownTimeout int      `toml:"shutdown_timeout"`
@@ -55,6 +56,8 @@ type AuthConfig struct {
 	MinPasswordLength    int                      `toml:"min_password_length"`
 	OAuth                map[string]OAuthProvider `toml:"oauth"`
 	OAuthRedirectURL     string                   `toml:"oauth_redirect_url"`
+	MagicLinkEnabled     bool                     `toml:"magic_link_enabled"`
+	MagicLinkDuration    int                      `toml:"magic_link_duration"` // seconds, default 600 (10 min)
 }
 
 // OAuthProvider configures a single OAuth2 provider (e.g. google, github).
@@ -133,6 +136,7 @@ func Default() *Config {
 			RefreshTokenDuration: 604800, // 7 days
 			RateLimit:            10,     // requests per minute per IP
 			MinPasswordLength:    8,      // NIST SP 800-63B recommended minimum
+			MagicLinkDuration:    600,    // 10 minutes
 		},
 		Email: EmailConfig{
 			Backend:  "log",
@@ -209,6 +213,9 @@ func (c *Config) Validate() error {
 	if c.Auth.JWTSecret != "" && len(c.Auth.JWTSecret) < 32 {
 		return fmt.Errorf("auth.jwt_secret must be at least 32 characters, got %d", len(c.Auth.JWTSecret))
 	}
+	if c.Auth.MagicLinkEnabled && !c.Auth.Enabled {
+		return fmt.Errorf("auth.enabled must be true to use magic link authentication")
+	}
 	for name, p := range c.Auth.OAuth {
 		if p.Enabled {
 			if !c.Auth.Enabled {
@@ -281,6 +288,21 @@ func (c *Config) Address() string {
 	return fmt.Sprintf("%s:%d", c.Server.Host, c.Server.Port)
 }
 
+// PublicBaseURL returns the public base URL for email action links (password reset,
+// magic links, etc.). If server.site_url is configured, it is used as-is (with
+// trailing slashes stripped). Otherwise, a URL is constructed from host:port,
+// replacing the bind-all address 0.0.0.0 with localhost so links work in browsers.
+func (c *Config) PublicBaseURL() string {
+	if c.Server.SiteURL != "" {
+		return strings.TrimRight(c.Server.SiteURL, "/")
+	}
+	host := c.Server.Host
+	if host == "0.0.0.0" || host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("http://%s:%d", host, c.Server.Port)
+}
+
 // GenerateDefault writes a commented default ayb.toml to the given path.
 func GenerateDefault(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -320,6 +342,9 @@ func applyEnv(cfg *Config) error {
 	if err := envInt("AYB_SERVER_PORT", &cfg.Server.Port); err != nil {
 		return err
 	}
+	if v := os.Getenv("AYB_SERVER_SITE_URL"); v != "" {
+		cfg.Server.SiteURL = v
+	}
 	if v := os.Getenv("AYB_DATABASE_URL"); v != "" {
 		cfg.Database.URL = v
 	}
@@ -358,6 +383,12 @@ func applyEnv(cfg *Config) error {
 	}
 	if v := os.Getenv("AYB_AUTH_OAUTH_REDIRECT_URL"); v != "" {
 		cfg.Auth.OAuthRedirectURL = v
+	}
+	if v := os.Getenv("AYB_AUTH_MAGIC_LINK_ENABLED"); v != "" {
+		cfg.Auth.MagicLinkEnabled = v == "true" || v == "1"
+	}
+	if err := envInt("AYB_AUTH_MAGIC_LINK_DURATION", &cfg.Auth.MagicLinkDuration); err != nil {
+		return err
 	}
 	// Email config.
 	if v := os.Getenv("AYB_EMAIL_BACKEND"); v != "" {
@@ -487,7 +518,8 @@ func (c *StorageConfig) MaxFileSizeBytes() int64 {
 
 // validKeys is the complete set of dot-separated config keys.
 var validKeys = map[string]bool{
-	"server.host": true, "server.port": true, "server.cors_allowed_origins": true,
+	"server.host": true, "server.port": true, "server.site_url": true,
+	"server.cors_allowed_origins": true,
 	"server.body_limit": true, "server.shutdown_timeout": true,
 	"database.url": true, "database.max_conns": true, "database.min_conns": true,
 	"database.health_check_interval": true, "database.embedded_port": true,
@@ -495,7 +527,7 @@ var validKeys = map[string]bool{
 	"admin.enabled": true, "admin.path": true, "admin.password": true,
 	"auth.enabled": true, "auth.jwt_secret": true, "auth.token_duration": true,
 	"auth.refresh_token_duration": true, "auth.rate_limit": true, "auth.min_password_length": true,
-	"auth.oauth_redirect_url": true,
+	"auth.oauth_redirect_url": true, "auth.magic_link_enabled": true, "auth.magic_link_duration": true,
 	"email.backend": true, "email.from": true, "email.from_name": true,
 	"storage.enabled": true, "storage.backend": true, "storage.local_path": true,
 	"storage.max_file_size": true, "storage.s3_endpoint": true, "storage.s3_bucket": true,
@@ -516,6 +548,8 @@ func GetValue(cfg *Config, key string) (any, error) {
 		return cfg.Server.Host, nil
 	case "server.port":
 		return cfg.Server.Port, nil
+	case "server.site_url":
+		return cfg.Server.SiteURL, nil
 	case "server.cors_allowed_origins":
 		return strings.Join(cfg.Server.CORSAllowedOrigins, ","), nil
 	case "server.body_limit":
@@ -556,6 +590,10 @@ func GetValue(cfg *Config, key string) (any, error) {
 		return cfg.Auth.MinPasswordLength, nil
 	case "auth.oauth_redirect_url":
 		return cfg.Auth.OAuthRedirectURL, nil
+	case "auth.magic_link_enabled":
+		return cfg.Auth.MagicLinkEnabled, nil
+	case "auth.magic_link_duration":
+		return cfg.Auth.MagicLinkDuration, nil
 	case "email.backend":
 		return cfg.Email.Backend, nil
 	case "email.from":
@@ -638,7 +676,7 @@ func SetValue(configPath, key, value string) error {
 func coerceValue(key, value string) any {
 	// Boolean fields.
 	switch key {
-	case "admin.enabled", "auth.enabled", "storage.enabled", "storage.s3_use_ssl":
+	case "admin.enabled", "auth.enabled", "auth.magic_link_enabled", "storage.enabled", "storage.s3_use_ssl":
 		return value == "true" || value == "1"
 	}
 	// Integer fields.
@@ -647,7 +685,7 @@ func coerceValue(key, value string) any {
 		"database.max_conns", "database.min_conns", "database.health_check_interval",
 		"database.embedded_port",
 		"auth.token_duration", "auth.refresh_token_duration", "auth.rate_limit",
-		"auth.min_password_length":
+		"auth.min_password_length", "auth.magic_link_duration":
 		if n, err := strconv.Atoi(value); err == nil {
 			return n
 		}
@@ -662,6 +700,10 @@ const defaultTOML = `# AllYourBase (AYB) Configuration
 # Address to listen on.
 host = "0.0.0.0"
 port = 8090
+
+# Public URL for email action links (password reset, magic links, verification).
+# Required for production. If unset, defaults to http://localhost:<port>.
+# site_url = "https://myapp.example.com"
 
 # CORS allowed origins. Use ["*"] to allow all.
 cors_allowed_origins = ["*"]
@@ -725,6 +767,11 @@ min_password_length = 8
 
 # URL to redirect to after OAuth login (tokens appended as hash fragment).
 # oauth_redirect_url = "http://localhost:5173/oauth-callback"
+
+# Magic link (passwordless) authentication.
+# When enabled, users can request a login link via email — no password needed.
+# magic_link_enabled = false
+# magic_link_duration = 600
 
 # OAuth providers. Supported: google, github.
 # [auth.oauth.google]

@@ -44,10 +44,10 @@ func NewMigrator(opts MigrationOptions) (*Migrator, error) {
 	if opts.FirestoreExportPath != "" {
 		info, err := os.Stat(opts.FirestoreExportPath)
 		if err != nil {
-			return nil, fmt.Errorf("Firestore export path: %w", err)
+			return nil, fmt.Errorf("firestore export path: %w", err)
 		}
 		if !info.IsDir() {
-			return nil, fmt.Errorf("Firestore export path must be a directory")
+			return nil, fmt.Errorf("firestore export path must be a directory")
 		}
 	}
 
@@ -163,7 +163,7 @@ func (m *Migrator) Migrate(ctx context.Context) (*MigrationStats, error) {
 	if m.opts.FirestoreExportPath != "" {
 		phaseIdx++
 		if err := m.migrateFirestoreData(ctx, tx, phaseIdx, totalPhases); err != nil {
-			return nil, fmt.Errorf("Firestore migration: %w", err)
+			return nil, fmt.Errorf("firestore migration: %w", err)
 		}
 	}
 

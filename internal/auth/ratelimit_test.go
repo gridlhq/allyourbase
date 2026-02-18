@@ -111,7 +111,9 @@ func TestRateLimiterMiddlewareHeaders(t *testing.T) {
 			testutil.Equal(t, http.StatusOK, w.Code)
 			testutil.Equal(t, "3", w.Header().Get("X-RateLimit-Limit"))
 			testutil.Equal(t, tt.expectedRemaining, w.Header().Get("X-RateLimit-Remaining"))
-			testutil.NotEqual(t, "", w.Header().Get("X-RateLimit-Reset"))
+			resetEpoch, err := strconv.ParseInt(w.Header().Get("X-RateLimit-Reset"), 10, 64)
+			testutil.NoError(t, err)
+			testutil.True(t, resetEpoch > time.Now().Unix()-1, "X-RateLimit-Reset should be in the near future, got %d", resetEpoch)
 		})
 	}
 
@@ -124,7 +126,9 @@ func TestRateLimiterMiddlewareHeaders(t *testing.T) {
 	testutil.Equal(t, http.StatusTooManyRequests, w.Code)
 	testutil.Equal(t, "3", w.Header().Get("X-RateLimit-Limit"))
 	testutil.Equal(t, "0", w.Header().Get("X-RateLimit-Remaining"))
-	testutil.NotEqual(t, "", w.Header().Get("X-RateLimit-Reset"))
+	resetEpoch429, err := strconv.ParseInt(w.Header().Get("X-RateLimit-Reset"), 10, 64)
+	testutil.NoError(t, err)
+	testutil.True(t, resetEpoch429 > time.Now().Unix()-1, "X-RateLimit-Reset should be in the near future, got %d", resetEpoch429)
 	retryAfter, err := strconv.Atoi(w.Header().Get("Retry-After"))
 	testutil.NoError(t, err)
 	testutil.True(t, retryAfter > 0 && retryAfter <= 61, "Retry-After should be 1-61, got %d", retryAfter)
@@ -132,28 +136,48 @@ func TestRateLimiterMiddlewareHeaders(t *testing.T) {
 
 // --- clientIP tests ---
 
-func TestClientIPFromXForwardedFor(t *testing.T) {
+func TestClientIPFromXForwardedForTrustedProxy(t *testing.T) {
+	// XFF is trusted when RemoteAddr is a private/loopback IP (behind proxy).
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("X-Forwarded-For", "203.0.113.50")
 	testutil.Equal(t, "203.0.113.50", clientIP(req))
 }
 
-func TestClientIPFromXForwardedForMultiple(t *testing.T) {
+func TestClientIPFromXForwardedForMultipleTrustedProxy(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
 	req.Header.Set("X-Forwarded-For", "203.0.113.50, 70.41.3.18, 150.172.238.178")
 	testutil.Equal(t, "203.0.113.50", clientIP(req))
 }
 
 func TestClientIPFromXForwardedForTrimsWhitespace(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "192.168.1.1:12345"
 	req.Header.Set("X-Forwarded-For", "  203.0.113.50 , 70.41.3.18")
 	testutil.Equal(t, "203.0.113.50", clientIP(req))
 }
 
-func TestClientIPFromXRealIP(t *testing.T) {
+func TestClientIPFromXRealIPTrustedProxy(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "127.0.0.1:12345"
 	req.Header.Set("X-Real-IP", "198.51.100.1")
 	testutil.Equal(t, "198.51.100.1", clientIP(req))
+}
+
+func TestClientIPIgnoresXFFFromPublicIP(t *testing.T) {
+	// XFF should be ignored when RemoteAddr is a public IP (direct connection).
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "203.0.113.1:12345"
+	req.Header.Set("X-Forwarded-For", "10.0.0.99")
+	testutil.Equal(t, "203.0.113.1", clientIP(req))
+}
+
+func TestClientIPIgnoresXRealIPFromPublicIP(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.RemoteAddr = "198.51.100.5:12345"
+	req.Header.Set("X-Real-IP", "10.0.0.99")
+	testutil.Equal(t, "198.51.100.5", clientIP(req))
 }
 
 func TestClientIPFromRemoteAddr(t *testing.T) {

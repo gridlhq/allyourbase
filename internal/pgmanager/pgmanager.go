@@ -130,7 +130,6 @@ func (m *Manager) Start(ctx context.Context) (string, error) {
 	m.logger.Info("embedded postgres started",
 		"port", port,
 		"data", dataDir,
-		"url", m.connURL,
 	)
 	return m.connURL, nil
 }

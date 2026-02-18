@@ -1,49 +1,37 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, execSQL } from "../fixtures";
 
 /**
  * SMOKE TEST: Users - List View
  *
- * Critical Path: Navigate to Users → Verify list loads
- *
- * This test validates:
- * 1. Users section accessible from sidebar
- * 2. Users view loads correctly
- * 3. User list OR empty state is displayed
- *
- * UI-ONLY: No direct API calls allowed
+ * Critical Path: Navigate to Users → Verify list loads with user data
  */
 
 test.describe("Smoke: Users List", () => {
-  test("users section loads and displays correctly", async ({ page }) => {
-    // Step 1: Navigate to admin dashboard
-    await page.goto("/admin/");
-    await expect(page.getByText("AYB Admin").first()).toBeVisible();
+  test("seeded user renders in users list", async ({ page, request, adminToken }) => {
+    const runId = Date.now();
+    const testEmail = `seed-verify-${runId}@test.com`;
 
-    // Step 2: Navigate to Users section
-    const usersButton = page.locator("aside").getByRole("button", { name: /^Users$/i });
-    await expect(usersButton).toBeVisible({ timeout: 5000 });
-    await usersButton.click();
-
-    // Step 3: Verify users view loaded — either shows user list or empty state
-    const usersHeading = page.getByText("Users").first();
-    const noUsers = page.getByText(/no users|no.*found/i);
-    const userTable = page.locator("table").or(page.getByText(/email/i));
-    const loadingDone = usersHeading.or(noUsers).or(userTable);
-
-    await expect(loadingDone.first()).toBeVisible({ timeout: 5000 });
-
-    // Step 4: Verify search input is present (Users section always has search)
-    const searchInput = page.getByPlaceholder(/search/i).or(
-      page.locator('input[type="search"], input[type="text"]')
+    // Arrange: seed a user via SQL
+    await execSQL(
+      request,
+      adminToken,
+      `INSERT INTO _ayb_users (email, password_hash) VALUES ('${testEmail}', '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g') ON CONFLICT DO NOTHING;`,
     );
 
-    // Search may or may not be visible depending on if users exist
-    // Just verify the view loaded without errors
-    const errorMessage = page.getByText(/failed to load|error/i);
-    await expect(errorMessage).not.toBeVisible({ timeout: 2000 }).catch(() => {
-      // If there's an error, that's also valid test info — don't fail silently
-    });
+    // Act: navigate to Users page
+    await page.goto("/admin/");
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    const usersButton = page.locator("aside").getByRole("button", { name: /^Users$/i });
+    await usersButton.click();
+    await expect(page.getByRole("heading", { name: /Users/i })).toBeVisible({ timeout: 5000 });
 
-    console.log("✅ Smoke test passed: Users list");
+    // Assert: seeded user email appears in the list
+    await expect(page.getByText(testEmail).first()).toBeVisible({ timeout: 5000 });
+
+    // Assert: search input is present (page fully loaded)
+    await expect(page.getByPlaceholder(/search/i)).toBeVisible({ timeout: 3000 });
+
+    // Cleanup
+    await execSQL(request, adminToken, `DELETE FROM _ayb_users WHERE email = '${testEmail}';`);
   });
 });

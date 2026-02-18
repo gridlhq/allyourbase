@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/allyourbase/ayb/internal/auth"
+	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/fbmigrate"
 	"github.com/allyourbase/ayb/internal/mailer"
@@ -36,7 +38,7 @@ var startCmd = &cobra.Command{
 	Use:   "start",
 	Short: "Start the AYB server",
 	Long: `Start the AllYourBase server. If no database URL is configured,
-AYB starts an embedded PostgreSQL instance automatically.
+AYB starts a managed PostgreSQL instance automatically.
 
 With external database:
   ayb start --database-url postgresql://user:pass@localhost:5432/mydb
@@ -95,7 +97,8 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 	// Set up logger. In TTY mode, suppress INFO during startup
 	// (pretty progress lines replace them). Level is restored after server starts.
-	logger, logLevel := newLogger(cfg.Logging.Level, cfg.Logging.Format)
+	logger, logLevel, logPath, closeLog := newLogger(cfg.Logging.Level, cfg.Logging.Format)
+	defer closeLog()
 	if isTTY {
 		logLevel.Set(slog.LevelWarn)
 	}
@@ -127,7 +130,7 @@ func runStart(cmd *cobra.Command, args []string) error {
 	// Start embedded PostgreSQL if no database URL is configured.
 	var pgMgr *pgmanager.Manager
 	if cfg.Database.URL == "" {
-		sp.step("Starting embedded PostgreSQL...")
+		sp.step("Starting managed PostgreSQL...")
 		logger.Info("no database URL configured, starting embedded PostgreSQL")
 		pgMgr = pgmanager.New(pgmanager.Config{
 			Port:    uint32(cfg.Database.EmbeddedPort),
@@ -241,8 +244,16 @@ func runStart(cmd *cobra.Command, args []string) error {
 
 		// Build mailer and inject into auth service.
 		m := buildMailer(cfg, logger)
-		baseURL := fmt.Sprintf("http://%s/api", cfg.Address())
+		baseURL := cfg.PublicBaseURL() + "/api"
 		authSvc.SetMailer(m, cfg.Email.FromName, baseURL)
+		if cfg.Auth.MagicLinkEnabled {
+			dur := time.Duration(cfg.Auth.MagicLinkDuration) * time.Second
+			if dur <= 0 {
+				dur = 10 * time.Minute
+			}
+			authSvc.SetMagicLinkDuration(dur)
+			logger.Info("magic link auth enabled", "duration", dur)
+		}
 		logger.Info("auth enabled", "email_backend", cfg.Email.Backend)
 	}
 
@@ -317,12 +328,20 @@ func runStart(cmd *cobra.Command, args []string) error {
 			defer os.Remove(pidPath)
 		}
 
+		// Save admin token so `ayb sql` can authenticate automatically.
+		if cfg.Admin.Password != "" {
+			if tokenPath, err := aybAdminTokenPath(); err == nil {
+				_ = os.WriteFile(tokenPath, []byte(cfg.Admin.Password), 0o600)
+				defer os.Remove(tokenPath)
+			}
+		}
+
 		// In TTY mode the header was already printed; show just the body.
 		// In non-TTY mode show the full banner (header + body).
 		if isTTY {
-			printBannerBodyTo(os.Stderr, cfg, pgMgr != nil, true, generatedPassword)
+			printBannerBodyTo(os.Stderr, cfg, pgMgr != nil, true, generatedPassword, logPath)
 		} else {
-			printBanner(cfg, pgMgr != nil, generatedPassword)
+			printBanner(cfg, pgMgr != nil, generatedPassword, logPath)
 		}
 
 		// Handle SIGUSR1 for password reset in background.
@@ -380,6 +399,15 @@ func aybPIDPath() (string, error) {
 		return "", err
 	}
 	return filepath.Join(home, ".ayb", "ayb.pid"), nil
+}
+
+// aybAdminTokenPath returns the path to the saved admin token (~/.ayb/admin-token).
+func aybAdminTokenPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".ayb", "admin-token"), nil
 }
 
 // aybResetResultPath returns the path for the password reset result file (~/.ayb/.pw_reset_result).
@@ -449,20 +477,124 @@ func buildMailer(cfg *config.Config, logger *slog.Logger) mailer.Mailer {
 	}
 }
 
-func newLogger(level, format string) (*slog.Logger, *slog.LevelVar) {
+// logFilePath returns the path to today's log file (~/.ayb/logs/ayb-YYYYMMDD.log).
+// It creates the logs directory if needed. Returns "" on any error.
+func logFilePath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	dir := filepath.Join(home, ".ayb", "logs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return filepath.Join(dir, fmt.Sprintf("ayb-%s.log", time.Now().Format("20060102")))
+}
+
+// cleanOldLogs removes log files older than 7 days.
+func cleanOldLogs() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	dir := filepath.Join(home, ".ayb", "logs")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().AddDate(0, 0, -7)
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(cutoff) {
+			os.Remove(filepath.Join(dir, e.Name()))
+		}
+	}
+}
+
+// multiHandler fans out log records to multiple handlers.
+type multiHandler struct {
+	handlers []slog.Handler
+}
+
+func (h *multiHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	for _, handler := range h.handlers {
+		if handler.Enabled(ctx, level) {
+			return true
+		}
+	}
+	return false
+}
+
+func (h *multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, handler := range h.handlers {
+		if handler.Enabled(ctx, r.Level) {
+			if err := handler.Handle(ctx, r); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (h *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	handlers := make([]slog.Handler, len(h.handlers))
+	for i, handler := range h.handlers {
+		handlers[i] = handler.WithAttrs(attrs)
+	}
+	return &multiHandler{handlers: handlers}
+}
+
+func (h *multiHandler) WithGroup(name string) slog.Handler {
+	handlers := make([]slog.Handler, len(h.handlers))
+	for i, handler := range h.handlers {
+		handlers[i] = handler.WithGroup(name)
+	}
+	return &multiHandler{handlers: handlers}
+}
+
+// newLogger creates a logger that writes to stderr and optionally to a log file.
+// The log file receives all levels (DEBUG+) while stderr uses the configured level.
+// Returns the logger, the stderr level var (for runtime adjustment), the log file
+// path (empty if file logging failed), and an optional file closer.
+func newLogger(level, format string) (*slog.Logger, *slog.LevelVar, string, func()) {
 	var lvlVar slog.LevelVar
 	lvlVar.Set(parseSlogLevel(level))
 
 	opts := &slog.HandlerOptions{Level: &lvlVar}
 
-	var handler slog.Handler
+	var stderrHandler slog.Handler
 	if format == "text" {
-		handler = slog.NewTextHandler(os.Stderr, opts)
+		stderrHandler = slog.NewTextHandler(os.Stderr, opts)
 	} else {
-		handler = slog.NewJSONHandler(os.Stderr, opts)
+		stderrHandler = slog.NewJSONHandler(os.Stderr, opts)
 	}
 
-	return slog.New(handler), &lvlVar
+	// Try to open a log file for detailed output.
+	logPath := logFilePath()
+	if logPath == "" {
+		return slog.New(stderrHandler), &lvlVar, "", func() {}
+	}
+
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return slog.New(stderrHandler), &lvlVar, "", func() {}
+	}
+
+	fileOpts := &slog.HandlerOptions{Level: slog.LevelDebug}
+	fileHandler := slog.NewJSONHandler(f, fileOpts)
+
+	handler := &multiHandler{handlers: []slog.Handler{stderrHandler, fileHandler}}
+
+	// Clean old logs in the background.
+	go cleanOldLogs()
+
+	return slog.New(handler), &lvlVar, logPath, func() { f.Close() }
 }
 
 func parseSlogLevel(level string) slog.Level {
@@ -479,76 +611,88 @@ func parseSlogLevel(level string) slog.Level {
 }
 
 // startupProgress provides human-readable startup steps for interactive terminals.
-// In non-TTY mode (CI, piped output) all methods are no-ops.
+// In TTY mode it shows animated spinners; in non-TTY mode all methods are no-ops.
 type startupProgress struct {
 	w        io.Writer
+	spinner  *ui.StepSpinner
 	active   bool
 	useColor bool
 }
 
 func newStartupProgress(w io.Writer, active bool, useColor bool) *startupProgress {
-	return &startupProgress{w: w, active: active, useColor: useColor}
+	return &startupProgress{
+		w:        w,
+		spinner:  ui.NewStepSpinner(w, !active),
+		active:   active,
+		useColor: useColor,
+	}
 }
 
 func (sp *startupProgress) header(version string) {
 	if !sp.active {
 		return
 	}
-	fmt.Fprintf(sp.w, "\n  %s\n\n", boldCyan(fmt.Sprintf("AllYourBase v%s", version), sp.useColor))
+	fmt.Fprintf(sp.w, "\n  %s %s\n\n",
+		ui.BrandEmoji,
+		boldCyan(fmt.Sprintf("AllYourBase v%s", version), sp.useColor))
 }
 
 func (sp *startupProgress) step(msg string) {
 	if !sp.active {
 		return
 	}
-	fmt.Fprintf(sp.w, "  %s", msg)
+	sp.spinner.Start(msg)
 }
 
 func (sp *startupProgress) done() {
 	if !sp.active {
 		return
 	}
-	fmt.Fprintf(sp.w, " %s\n", green("✓", sp.useColor))
+	sp.spinner.Done()
 }
 
 func (sp *startupProgress) fail() {
 	if !sp.active {
 		return
 	}
-	fmt.Fprintf(sp.w, " %s\n", yellow("✗", sp.useColor))
+	sp.spinner.Fail()
 }
 
 // portError wraps common listen errors with actionable suggestions.
 func portError(port int, err error) error {
 	if strings.Contains(err.Error(), "address already in use") {
-		return fmt.Errorf("port %d is already in use\n\n  Try:\n    ayb start --port %d     # use a different port\n    ayb stop                # stop the running server", port, port+1)
+		return fmt.Errorf("%s", ui.FormatError(
+			fmt.Sprintf("port %d is already in use", port),
+			fmt.Sprintf("ayb start --port %d   # use a different port", port+1),
+			"ayb stop                # stop the running server",
+		))
 	}
 	return err
 }
 
 // printBanner writes a human-readable startup summary to stderr.
 // This is separate from structured logging and designed for first-time users.
-func printBanner(cfg *config.Config, embeddedPG bool, generatedPassword string) {
-	printBannerTo(os.Stderr, cfg, embeddedPG, colorEnabled(), generatedPassword)
+func printBanner(cfg *config.Config, embeddedPG bool, generatedPassword, logPath string) {
+	printBannerTo(os.Stderr, cfg, embeddedPG, colorEnabled(), generatedPassword, logPath)
 }
 
 // printBannerTo writes the full banner (header + body) to w. Extracted for testing.
-func printBannerTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword string) {
+func printBannerTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword, logPath string) {
 	ver := bannerVersion(buildVersion)
 	fmt.Fprintln(w)
-	fmt.Fprintf(w, "  %s\n", boldCyan(fmt.Sprintf("AllYourBase v%s", ver), useColor))
-	printBannerBodyTo(w, cfg, embeddedPG, useColor, generatedPassword)
+	fmt.Fprintf(w, "  %s %s\n", ui.BrandEmoji,
+		boldCyan(fmt.Sprintf("AllYourBase v%s", ver), useColor))
+	printBannerBodyTo(w, cfg, embeddedPG, useColor, generatedPassword, logPath)
 }
 
 // printBannerBodyTo writes everything after the header (URLs, hints, etc.).
 // Used by TTY mode where the header is shown early during startup progress.
-func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword string) {
-	addr := cfg.Address()
-	apiURL := fmt.Sprintf("http://%s/api", addr)
+func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword, logPath string) {
+	apiURL := cfg.PublicBaseURL() + "/api"
 
 	dbMode := "external"
 	if embeddedPG {
-		dbMode = "embedded"
+		dbMode = "managed"
 	}
 
 	// Pad labels before colorizing so ANSI codes don't break alignment.
@@ -559,7 +703,7 @@ func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColo
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s %s\n", padLabel("API:", 10), cyan(apiURL, useColor))
 	if cfg.Admin.Enabled {
-		adminURL := fmt.Sprintf("http://%s%s", addr, cfg.Admin.Path)
+		adminURL := cfg.PublicBaseURL() + cfg.Admin.Path
 		fmt.Fprintf(w, "  %s %s\n", padLabel("Admin:", 10), cyan(adminURL, useColor))
 	}
 	fmt.Fprintf(w, "  %s %s\n", padLabel("Database:", 10), dbMode)
@@ -576,13 +720,31 @@ func printBannerBodyTo(w io.Writer, cfg *config.Config, embeddedPG bool, useColo
 	}
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s %s\n", padLabel("Docs:", 10), dim("https://allyourbase.io/guide/quickstart", useColor))
+	if logPath != "" {
+		fmt.Fprintf(w, "  %s %s\n", padLabel("Logs:", 10), dim(logPath, useColor))
+	}
 
 	// Print next-step hints for new users (no leading whitespace for easy copy-paste).
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s\n", dim("Try:", useColor))
-	fmt.Fprintf(w, "%s\n", green(`./ayb sql "CREATE TABLE posts (id serial PRIMARY KEY, title text)"`, useColor))
-	fmt.Fprintf(w, "%s\n", green(fmt.Sprintf("curl %s/collections/posts", apiURL), useColor))
+	fmt.Fprintf(w, "%s\n", green(`ayb sql "CREATE TABLE posts (id serial PRIMARY KEY, title text)"`, useColor))
+	fmt.Fprintf(w, "%s\n", green(fmt.Sprintf("curl %s/schema", apiURL), useColor))
 	fmt.Fprintln(w)
+}
+
+// redactURL removes userinfo (username:password) from a URL for safe logging.
+func redactURL(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "***"
+	}
+	if u.User != nil {
+		u.User = nil
+		// Re-insert redacted marker at string level to avoid URL-encoding of *.
+		s := u.String()
+		return strings.Replace(s, "://", "://***@", 1)
+	}
+	return u.String()
 }
 
 // bannerVersion extracts a clean semver string for the startup banner.
@@ -620,7 +782,7 @@ func runFromMigration(ctx context.Context, from string, databaseURL string, logg
 	case migrate.SourceFirebase:
 		return runFromFirebase(ctx, from, databaseURL, logger)
 	case migrate.SourcePostgres:
-		logger.Info("detected generic PostgreSQL source", "url", from)
+		logger.Info("detected generic PostgreSQL source", "url", redactURL(from))
 		return fmt.Errorf("generic PostgreSQL --from migration is not yet implemented")
 	default:
 		return fmt.Errorf("could not detect migration source type from %q (expected: path to pb_data, postgres:// URL, or firebase:// URL)", from)
@@ -668,7 +830,7 @@ func runFromPocketBase(ctx context.Context, sourcePath string, databaseURL strin
 
 // runFromSupabase runs Supabase migration as part of ayb start --from.
 func runFromSupabase(ctx context.Context, sourceURL string, databaseURL string, logger *slog.Logger) error {
-	logger.Info("detected Supabase source", "url", sourceURL)
+	logger.Info("detected Supabase source", "url", redactURL(sourceURL))
 
 	progress := migrate.NewCLIReporter(os.Stderr)
 
@@ -719,7 +881,7 @@ func runFromFirebase(ctx context.Context, from string, databaseURL string, logge
 		opts.AuthExportPath = from
 	} else {
 		// firebase:// URL — not yet supported for auto-detection of export paths.
-		return fmt.Errorf("Firebase --from requires a path to a .json auth export file")
+		return fmt.Errorf("firebase --from requires a path to a .json auth export file")
 	}
 
 	migrator, err := fbmigrate.NewMigrator(opts)

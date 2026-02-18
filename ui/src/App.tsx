@@ -39,6 +39,14 @@ export function App() {
     boot();
   }, [boot]);
 
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setState({ kind: "login" });
+    };
+    window.addEventListener("ayb:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("ayb:unauthorized", handleUnauthorized);
+  }, []);
+
   const handleLogin = useCallback(() => {
     setState({ kind: "loading" });
     boot();

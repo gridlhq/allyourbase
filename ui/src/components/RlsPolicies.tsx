@@ -373,6 +373,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
                           }
                           className="p-1 text-gray-400 hover:text-gray-600 rounded"
                           title="View SQL"
+                          aria-label="View SQL"
                         >
                           <Code className="w-3.5 h-3.5" />
                         </button>
@@ -380,6 +381,7 @@ export function RlsPolicies({ schema }: RlsPoliciesProps) {
                           onClick={() => setModal({ kind: "delete", policy: pol })}
                           className="p-1 text-gray-400 hover:text-red-500 rounded"
                           title="Delete policy"
+                          aria-label="Delete policy"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>

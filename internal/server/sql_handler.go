@@ -3,11 +3,14 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/allyourbase/ayb/internal/httputil"
+	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -27,9 +30,24 @@ type sqlResponse struct {
 // QueryTimeout is the maximum execution time for a SQL editor query.
 const QueryTimeout = 30 * time.Second
 
+// isDDL returns true if the query starts with a DDL keyword.
+func isDDL(query string) bool {
+	fields := strings.Fields(strings.TrimSpace(query))
+	if len(fields) == 0 {
+		return false
+	}
+	switch strings.ToUpper(fields[0]) {
+	case "CREATE", "ALTER", "DROP", "TRUNCATE", "GRANT", "REVOKE", "COMMENT":
+		return true
+	}
+	return false
+}
+
 // handleAdminSQL executes a raw SQL query and returns the results.
 // This is admin-only (gated by requireAdminToken middleware).
-func handleAdminSQL(pool *pgxpool.Pool) http.HandlerFunc {
+// If the query is DDL, the schema cache is reloaded synchronously before
+// responding so that subsequent /api/schema requests reflect the change.
+func handleAdminSQL(pool *pgxpool.Pool, sc *schema.CacheHolder) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req sqlRequest
 		if !httputil.DecodeJSON(w, r, &req) {
@@ -88,6 +106,15 @@ func handleAdminSQL(pool *pgxpool.Pool) http.HandlerFunc {
 			resultRows = [][]any{}
 		}
 
+		// Reload schema cache synchronously after DDL so the next
+		// /api/schema request returns the updated schema.
+		if isDDL(req.Query) && sc != nil {
+			if err := sc.ReloadWait(r.Context()); err != nil {
+				// Log but don't fail the request — the DDL itself succeeded.
+				slog.Default().Warn("schema reload after DDL failed", "error", err)
+			}
+		}
+
 		duration := time.Since(start)
 		httputil.WriteJSON(w, http.StatusOK, sqlResponse{
 			Columns:    columns,
@@ -106,6 +133,10 @@ func toJSONSafe(v any) any {
 	switch val := v.(type) {
 	case time.Time:
 		return val.Format(time.RFC3339Nano)
+	case [16]byte:
+		// PostgreSQL UUID returned as [16]byte by pgx.
+		return fmt.Sprintf("%x-%x-%x-%x-%x",
+			val[0:4], val[4:6], val[6:8], val[8:10], val[10:16])
 	case []byte:
 		// Try to parse as JSON first.
 		var j any

@@ -131,20 +131,8 @@ func TestCORSWildcard(t *testing.T) {
 	testutil.Equal(t, "", w.Header().Get("Vary"))
 }
 
-// --- Request ID ---
-
-func TestRequestIDHeader(t *testing.T) {
-	cfg := config.Default()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ch := schema.NewCacheHolder(nil, logger)
-	srv := server.New(cfg, logger, ch, nil, nil, nil)
-
-	req := httptest.NewRequest(http.MethodGet, "/health", nil)
-	w := httptest.NewRecorder()
-	srv.Router().ServeHTTP(w, req)
-
-	testutil.Equal(t, http.StatusOK, w.Code)
-}
+// TestRequestIDHeader removed — never tested request IDs (no X-Request-Id middleware
+// exists). Was just a duplicate of TestHealthEndpoint in server_test.go.
 
 // --- Admin SPA ---
 

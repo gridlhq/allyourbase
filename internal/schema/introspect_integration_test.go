@@ -102,24 +102,24 @@ func TestBuildCacheTables(t *testing.T) {
 	// Users table.
 	users := cache.Tables["public.users"]
 	testutil.NotNil(t, users)
-	testutil.Equal(t, users.Name, "users")
-	testutil.Equal(t, users.Schema, "public")
-	testutil.Equal(t, users.Kind, "table")
+	testutil.Equal(t, "users", users.Name)
+	testutil.Equal(t, "public", users.Schema)
+	testutil.Equal(t, "table", users.Kind)
 
 	// Posts table.
 	posts := cache.Tables["public.posts"]
 	testutil.NotNil(t, posts)
-	testutil.Equal(t, posts.Name, "posts")
+	testutil.Equal(t, "posts", posts.Name)
 
 	// View.
 	view := cache.Tables["public.active_users"]
 	testutil.NotNil(t, view)
-	testutil.Equal(t, view.Kind, "view")
+	testutil.Equal(t, "view", view.Kind)
 
 	// App schema table.
 	settings := cache.Tables["app.settings"]
 	testutil.NotNil(t, settings)
-	testutil.Equal(t, settings.Schema, "app")
+	testutil.Equal(t, "app", settings.Schema)
 }
 
 func TestBuildCacheColumns(t *testing.T) {
@@ -137,41 +137,41 @@ func TestBuildCacheColumns(t *testing.T) {
 	// Check specific columns.
 	idCol := users.ColumnByName("id")
 	testutil.NotNil(t, idCol)
-	testutil.Equal(t, idCol.JSONType, "integer")
+	testutil.Equal(t, "integer", idCol.JSONType)
 	testutil.True(t, idCol.IsPrimaryKey, "id should be PK")
 
 	nameCol := users.ColumnByName("name")
 	testutil.NotNil(t, nameCol)
-	testutil.Equal(t, nameCol.JSONType, "string")
+	testutil.Equal(t, "string", nameCol.JSONType)
 	testutil.False(t, nameCol.IsNullable, "name should not be nullable")
 
 	moodCol := users.ColumnByName("mood")
 	testutil.NotNil(t, moodCol)
-	testutil.Equal(t, moodCol.JSONType, "string")
+	testutil.Equal(t, "string", moodCol.JSONType)
 	testutil.True(t, moodCol.IsEnum, "mood should be enum")
 	testutil.True(t, len(moodCol.EnumValues) == 3, "mood should have 3 values")
 
 	metaCol := users.ColumnByName("metadata")
 	testutil.NotNil(t, metaCol)
-	testutil.Equal(t, metaCol.JSONType, "object")
+	testutil.Equal(t, "object", metaCol.JSONType)
 	testutil.True(t, metaCol.IsJSON, "metadata should be JSON")
 
 	tagsCol := users.ColumnByName("tags")
 	testutil.NotNil(t, tagsCol)
-	testutil.Equal(t, tagsCol.JSONType, "array")
+	testutil.Equal(t, "array", tagsCol.JSONType)
 	testutil.True(t, tagsCol.IsArray, "tags should be array")
 
 	scoreCol := users.ColumnByName("score")
 	testutil.NotNil(t, scoreCol)
-	testutil.Equal(t, scoreCol.JSONType, "number")
+	testutil.Equal(t, "number", scoreCol.JSONType)
 
 	activeCol := users.ColumnByName("is_active")
 	testutil.NotNil(t, activeCol)
-	testutil.Equal(t, activeCol.JSONType, "boolean")
+	testutil.Equal(t, "boolean", activeCol.JSONType)
 
 	createdCol := users.ColumnByName("created_at")
 	testutil.NotNil(t, createdCol)
-	testutil.Equal(t, createdCol.JSONType, "string")
+	testutil.Equal(t, "string", createdCol.JSONType)
 }
 
 func TestBuildCachePrimaryKeys(t *testing.T) {
@@ -185,18 +185,18 @@ func TestBuildCachePrimaryKeys(t *testing.T) {
 	users := cache.Tables["public.users"]
 	testutil.NotNil(t, users)
 	testutil.SliceLen(t, users.PrimaryKey, 1)
-	testutil.Equal(t, users.PrimaryKey[0], "id")
+	testutil.Equal(t, "id", users.PrimaryKey[0])
 
 	posts := cache.Tables["public.posts"]
 	testutil.NotNil(t, posts)
 	testutil.SliceLen(t, posts.PrimaryKey, 1)
-	testutil.Equal(t, posts.PrimaryKey[0], "id")
+	testutil.Equal(t, "id", posts.PrimaryKey[0])
 
 	// app.settings has text PK.
 	settings := cache.Tables["app.settings"]
 	testutil.NotNil(t, settings)
 	testutil.SliceLen(t, settings.PrimaryKey, 1)
-	testutil.Equal(t, settings.PrimaryKey[0], "key")
+	testutil.Equal(t, "key", settings.PrimaryKey[0])
 }
 
 func TestBuildCacheForeignKeys(t *testing.T) {
@@ -213,11 +213,11 @@ func TestBuildCacheForeignKeys(t *testing.T) {
 
 	fk := posts.ForeignKeys[0]
 	testutil.SliceLen(t, fk.Columns, 1)
-	testutil.Equal(t, fk.Columns[0], "author_id")
-	testutil.Equal(t, fk.ReferencedTable, "users")
+	testutil.Equal(t, "author_id", fk.Columns[0])
+	testutil.Equal(t, "users", fk.ReferencedTable)
 	testutil.SliceLen(t, fk.ReferencedColumns, 1)
-	testutil.Equal(t, fk.ReferencedColumns[0], "id")
-	testutil.Equal(t, fk.OnDelete, "CASCADE")
+	testutil.Equal(t, "id", fk.ReferencedColumns[0])
+	testutil.Equal(t, "CASCADE", fk.OnDelete)
 
 	// Comments should have 2 FKs.
 	comments := cache.Tables["public.comments"]
@@ -273,7 +273,7 @@ func TestBuildCacheRelationships(t *testing.T) {
 		}
 	}
 	testutil.NotNil(t, manyToOne)
-	testutil.Equal(t, manyToOne.FieldName, "author")
+	testutil.Equal(t, "author", manyToOne.FieldName)
 
 	// Users should have one-to-many from posts.
 	users := cache.Tables["public.users"]
@@ -310,11 +310,11 @@ func TestBuildCacheEnums(t *testing.T) {
 		}
 	}
 	testutil.NotNil(t, moodEnum)
-	testutil.Equal(t, moodEnum.Schema, "public")
+	testutil.Equal(t, "public", moodEnum.Schema)
 	testutil.SliceLen(t, moodEnum.Values, 3)
-	testutil.Equal(t, moodEnum.Values[0], "happy")
-	testutil.Equal(t, moodEnum.Values[1], "sad")
-	testutil.Equal(t, moodEnum.Values[2], "neutral")
+	testutil.Equal(t, "happy", moodEnum.Values[0])
+	testutil.Equal(t, "sad", moodEnum.Values[1])
+	testutil.Equal(t, "neutral", moodEnum.Values[2])
 }
 
 func TestBuildCacheExcludesSystemSchemas(t *testing.T) {

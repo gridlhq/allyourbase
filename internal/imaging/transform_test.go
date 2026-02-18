@@ -270,18 +270,28 @@ func TestTransformQuality(t *testing.T) {
 
 func TestTransformDefaultQuality(t *testing.T) {
 	src := makeTestJPEG(t, 400, 300)
-	// Quality 0 should default to 80.
-	result, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 0})
+	// Quality 0 should default to 80 (DefaultQuality).
+	defaultResult, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 0})
 	testutil.NoError(t, err)
-	testutil.True(t, len(result) > 0, "result should not be empty")
+
+	// Explicitly set quality 80 — should produce identical output.
+	explicit80, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 80})
+	testutil.NoError(t, err)
+
+	testutil.Equal(t, len(explicit80), len(defaultResult))
 }
 
 func TestTransformQualityClamped(t *testing.T) {
 	src := makeTestJPEG(t, 400, 300)
-	// Quality > 100 should be clamped to 100.
-	result, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 999})
+	// Quality > 100 should be clamped to 100 (MaxQuality).
+	clampedResult, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 999})
 	testutil.NoError(t, err)
-	testutil.True(t, len(result) > 0, "result should not be empty")
+
+	// Explicitly set quality 100 — should produce identical output.
+	explicit100, err := TransformBytes(src, Options{Width: 200, Format: FormatJPEG, Quality: 100})
+	testutil.NoError(t, err)
+
+	testutil.Equal(t, len(explicit100), len(clampedResult))
 }
 
 func TestTransformErrorNoDimensions(t *testing.T) {

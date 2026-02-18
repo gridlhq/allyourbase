@@ -2,12 +2,10 @@ package auth
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/testutil"
@@ -114,45 +112,24 @@ func TestHandleRegisterBodyTooLarge(t *testing.T) {
 	h := NewHandler(svc, testutil.DiscardLogger())
 	router := h.Routes()
 
-	// Create a body larger than 1MB.
-	largeBody := bytes.Repeat([]byte("x"), httputil.MaxBodySize+1)
+	// Valid JSON structure that exceeds MaxBodySize. Without body-size
+	// enforcement this would parse as valid JSON and proceed to validation
+	// (returning "invalid email format" or similar). The MaxBytesReader
+	// truncates the read so json.Decode fails with "invalid JSON body".
+	padding := bytes.Repeat([]byte("a"), httputil.MaxBodySize)
+	largeBody := append([]byte(`{"email":"`), padding...)
+	largeBody = append(largeBody, []byte(`@example.com","password":"12345678"}`)...)
 	req := httptest.NewRequest(http.MethodPost, "/register", bytes.NewReader(largeBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid JSON body")
 }
 
-func TestAuthResponseFormat(t *testing.T) {
-	// Verify the JSON structure of an auth response.
-	resp := authResponse{
-		Token:        "test-token",
-		RefreshToken: "test-refresh-token",
-		User: &User{
-			ID:        "test-id",
-			Email:     "test@example.com",
-			CreatedAt: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-			UpdatedAt: time.Date(2026, 2, 7, 12, 0, 0, 0, time.UTC),
-		},
-	}
-
-	data, err := json.Marshal(resp)
-	testutil.NoError(t, err)
-
-	var parsed map[string]any
-	err = json.Unmarshal(data, &parsed)
-	testutil.NoError(t, err)
-
-	testutil.Equal(t, "test-token", parsed["token"].(string))
-	testutil.Equal(t, "test-refresh-token", parsed["refreshToken"].(string))
-	user := parsed["user"].(map[string]any)
-	testutil.Equal(t, "test-id", user["id"].(string))
-	testutil.Equal(t, "test@example.com", user["email"].(string))
-	// Verify camelCase field names.
-	testutil.NotNil(t, user["createdAt"])
-	testutil.NotNil(t, user["updatedAt"])
-}
+// TestAuthResponseFormat removed — tested json.Marshal on a struct literal without
+// exercising any handler. Auth response JSON shape is covered by integration tests.
 
 func TestHandleRefreshMalformedJSON(t *testing.T) {
 	svc := newTestService()
@@ -281,17 +258,8 @@ func TestHandleResendVerificationNoAuth(t *testing.T) {
 	testutil.Equal(t, http.StatusUnauthorized, w.Code)
 }
 
-func TestHandleDeleteMeWithoutToken(t *testing.T) {
-	svc := newTestService()
-	h := NewHandler(svc, testutil.DiscardLogger())
-	router := h.Routes()
-
-	req := httptest.NewRequest(http.MethodDelete, "/me", nil)
-	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
-
-	testutil.Equal(t, http.StatusUnauthorized, w.Code)
-}
+// TestHandleDeleteMeWithoutToken removed — exact duplicate of TestHandleDeleteMeRouteRegistered
+// which additionally asserts on the error message body.
 
 func TestHandleDeleteMeRouteRegistered(t *testing.T) {
 	// Verify the DELETE /me route is registered and requires auth.

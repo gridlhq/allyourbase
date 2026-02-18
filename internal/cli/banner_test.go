@@ -5,9 +5,37 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/allyourbase/ayb/internal/config"
 	"github.com/allyourbase/ayb/internal/testutil"
 )
+
+// --- redactURL tests ---
+
+func TestRedactURLStripsCredentials(t *testing.T) {
+	got := redactURL("postgres://user:secret@host:5432/mydb")
+	testutil.Contains(t, got, "***")
+	testutil.True(t, !strings.Contains(got, "secret"), "secret should be redacted")
+	testutil.True(t, !strings.Contains(got, "user"), "username should be redacted")
+	testutil.Contains(t, got, "host:5432/mydb")
+}
+
+func TestRedactURLStripsUserOnly(t *testing.T) {
+	got := redactURL("postgres://admin@host:5432/db")
+	testutil.Contains(t, got, "***")
+	testutil.True(t, !strings.Contains(got, "admin"), "username should be redacted")
+	testutil.Contains(t, got, "host:5432/db")
+}
+
+func TestRedactURLPassesThroughNoCredentials(t *testing.T) {
+	got := redactURL("postgres://host:5432/db")
+	testutil.Equal(t, "postgres://host:5432/db", got)
+}
+
+func TestRedactURLReturnsStarsOnInvalidURL(t *testing.T) {
+	got := redactURL("://not a valid url")
+	testutil.Equal(t, "***", got)
+}
 
 // bannerToString runs printBannerTo with a bytes.Buffer to capture output.
 func bannerToString(cfg *config.Config, embeddedPG bool, useColor bool) string {
@@ -16,7 +44,7 @@ func bannerToString(cfg *config.Config, embeddedPG bool, useColor bool) string {
 
 func bannerToStringWithPassword(cfg *config.Config, embeddedPG bool, useColor bool, generatedPassword string) string {
 	var buf bytes.Buffer
-	printBannerTo(&buf, cfg, embeddedPG, useColor, generatedPassword)
+	printBannerTo(&buf, cfg, embeddedPG, useColor, generatedPassword, "")
 	return buf.String()
 }
 
@@ -39,16 +67,22 @@ func TestBannerContainsVersion(t *testing.T) {
 	testutil.Contains(t, out, "AllYourBase v")
 }
 
+func TestBannerContainsBrandEmoji(t *testing.T) {
+	cfg := defaultTestConfig()
+	out := bannerToString(cfg, false, false)
+	testutil.Contains(t, out, ui.BrandEmoji)
+}
+
 func TestBannerContainsAPIURL(t *testing.T) {
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
-	testutil.Contains(t, out, "http://0.0.0.0:8090/api")
+	testutil.Contains(t, out, "http://localhost:8090/api")
 }
 
 func TestBannerContainsAdminURL(t *testing.T) {
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
-	testutil.Contains(t, out, "http://0.0.0.0:8090/admin")
+	testutil.Contains(t, out, "http://localhost:8090/admin")
 }
 
 func TestBannerHidesAdminWhenDisabled(t *testing.T) {
@@ -58,10 +92,10 @@ func TestBannerHidesAdminWhenDisabled(t *testing.T) {
 	testutil.False(t, strings.Contains(out, "Admin:"))
 }
 
-func TestBannerShowsEmbeddedDatabase(t *testing.T) {
+func TestBannerShowsManagedDatabase(t *testing.T) {
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, true, false)
-	testutil.Contains(t, out, "embedded")
+	testutil.Contains(t, out, "managed")
 }
 
 func TestBannerShowsExternalDatabase(t *testing.T) {
@@ -101,7 +135,15 @@ func TestBannerCustomPort(t *testing.T) {
 	cfg := defaultTestConfig()
 	cfg.Server.Port = 3000
 	out := bannerToString(cfg, false, false)
-	testutil.Contains(t, out, "http://0.0.0.0:3000/api")
+	testutil.Contains(t, out, "http://localhost:3000/api")
+}
+
+func TestBannerWithSiteURL(t *testing.T) {
+	cfg := defaultTestConfig()
+	cfg.Server.SiteURL = "https://myapp.example.com"
+	out := bannerToString(cfg, false, false)
+	testutil.Contains(t, out, "https://myapp.example.com/api")
+	testutil.Contains(t, out, "https://myapp.example.com/admin")
 }
 
 func TestBannerCustomAdminPath(t *testing.T) {
@@ -209,11 +251,19 @@ func TestBannerCodeLinesNoPadding(t *testing.T) {
 	cfg := defaultTestConfig()
 	out := bannerToString(cfg, false, false)
 	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "./ayb sql") {
-			testutil.True(t, strings.HasPrefix(line, "./ayb"), "code line should start at column 0, got: %q", line)
+		if strings.Contains(line, "ayb sql") {
+			testutil.True(t, strings.HasPrefix(line, "ayb"), "code line should start at column 0, got: %q", line)
 		}
 		if strings.Contains(line, "curl ") {
 			testutil.True(t, strings.HasPrefix(line, "curl"), "curl line should start at column 0, got: %q", line)
 		}
 	}
+}
+
+func TestBannerHintNeverShowsToken(t *testing.T) {
+	// Token is stored in ~/.ayb/admin-token, not shown in the banner hint.
+	cfg := defaultTestConfig()
+	out := bannerToStringWithPassword(cfg, false, false, "mytoken123")
+	testutil.False(t, strings.Contains(out, "--admin-token"))
+	testutil.Contains(t, out, `ayb sql`)
 }

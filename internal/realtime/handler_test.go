@@ -2,6 +2,7 @@ package realtime_test
 
 import (
 	"bufio"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,20 @@ import (
 	"github.com/allyourbase/ayb/internal/testutil"
 	"github.com/golang-jwt/jwt/v5"
 )
+
+// parseSSEData extracts and parses the JSON from an SSE data line ("data: {...}").
+func parseSSEData(t *testing.T, line string) map[string]any {
+	t.Helper()
+	prefix := "data: "
+	if !strings.HasPrefix(line, prefix) {
+		t.Fatalf("expected SSE data line starting with %q, got: %s", prefix, line)
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(line[len(prefix):]), &m); err != nil {
+		t.Fatalf("parsing SSE data JSON: %v (line: %s)", err, line)
+	}
+	return m
+}
 
 const testJWTSecret = "test-secret-that-is-at-least-32-characters!!"
 
@@ -144,8 +159,8 @@ func TestSSENoAuthWhenDisabled(t *testing.T) {
 	}
 	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
-	testutil.True(t, strings.HasPrefix(lines[1], "data: "), "second line should be data")
-	testutil.Contains(t, lines[1], "clientId")
+	data := parseSSEData(t, lines[1])
+	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
 }
 
 // TestSSETokenInHeader tests auth via Authorization header.
@@ -166,6 +181,21 @@ func TestSSETokenInHeader(t *testing.T) {
 
 	testutil.Equal(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	// Verify the stream delivers the connected event.
+	scanner := bufio.NewScanner(resp.Body)
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+		if line == "" && len(lines) > 1 {
+			break
+		}
+	}
+	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
+	testutil.Equal(t, "event: connected", lines[0])
+	data := parseSSEData(t, lines[1])
+	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
 }
 
 // TestSSETokenInQueryParam tests auth via token query parameter.
@@ -182,6 +212,22 @@ func TestSSETokenInQueryParam(t *testing.T) {
 	defer resp.Body.Close()
 
 	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	// Verify the stream delivers the connected event.
+	scanner := bufio.NewScanner(resp.Body)
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+		if line == "" && len(lines) > 1 {
+			break
+		}
+	}
+	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
+	testutil.Equal(t, "event: connected", lines[0])
+	data := parseSSEData(t, lines[1])
+	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
 }
 
 // TestSSEReceivesPublishedEvents tests that events published to the hub
@@ -226,9 +272,12 @@ func TestSSEReceivesPublishedEvents(t *testing.T) {
 	}
 
 	testutil.True(t, len(eventLines) >= 1, "should have event lines")
-	testutil.True(t, strings.HasPrefix(eventLines[0], "data: "), "first line should be data")
-	testutil.Contains(t, eventLines[0], `"table":"posts"`)
-	testutil.Contains(t, eventLines[0], `"title":"Hello"`)
+	evData := parseSSEData(t, eventLines[0])
+	testutil.Equal(t, "posts", evData["table"])
+	testutil.Equal(t, "create", evData["action"])
+	record, ok := evData["record"].(map[string]any)
+	testutil.True(t, ok, "event should contain a record object")
+	testutil.Equal(t, "Hello", record["title"])
 }
 
 // TestSSEMultipleTables tests subscribing to multiple tables.
@@ -264,7 +313,8 @@ func TestSSEMultipleTables(t *testing.T) {
 		}
 	}
 	testutil.True(t, len(lines) >= 1, "should have event lines")
-	testutil.Contains(t, lines[0], `"table":"posts"`)
+	evData := parseSSEData(t, lines[0])
+	testutil.Equal(t, "posts", evData["table"])
 
 	// Publish to comments.
 	hub.Publish(&realtime.Event{Action: "create", Table: "comments", Record: map[string]any{"id": 2}})
@@ -278,7 +328,8 @@ func TestSSEMultipleTables(t *testing.T) {
 		}
 	}
 	testutil.True(t, len(lines) >= 1, "should have event lines")
-	testutil.Contains(t, lines[0], `"table":"comments"`)
+	evData2 := parseSSEData(t, lines[0])
+	testutil.Equal(t, "comments", evData2["table"])
 }
 
 // --- OAuth SSE Handler Tests ---
@@ -309,7 +360,8 @@ func TestOAuthSSEConnected(t *testing.T) {
 	}
 	testutil.True(t, len(lines) >= 2, "should have event + data lines")
 	testutil.Equal(t, "event: connected", lines[0])
-	testutil.Contains(t, lines[1], "clientId")
+	data := parseSSEData(t, lines[1])
+	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
 }
 
 // TestOAuthSSENoAuthRequired tests that oauth=true bypasses JWT auth even when auth is enabled.
@@ -327,6 +379,21 @@ func TestOAuthSSENoAuthRequired(t *testing.T) {
 
 	testutil.Equal(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+
+	// Verify the stream delivers the connected event.
+	scanner := bufio.NewScanner(resp.Body)
+	var lines []string
+	for scanner.Scan() {
+		line := scanner.Text()
+		lines = append(lines, line)
+		if line == "" && len(lines) > 1 {
+			break
+		}
+	}
+	testutil.True(t, len(lines) >= 2, "should have at least event + data lines")
+	testutil.Equal(t, "event: connected", lines[0])
+	data := parseSSEData(t, lines[1])
+	testutil.True(t, data["clientId"] != nil && data["clientId"] != "", "connected event should contain non-empty clientId")
 }
 
 // TestOAuthSSEReceivesOAuthEvent tests that publishing an OAuth event delivers it to the SSE client.
@@ -344,23 +411,19 @@ func TestOAuthSSEReceivesOAuthEvent(t *testing.T) {
 	scanner := bufio.NewScanner(resp.Body)
 
 	// Read connected event and extract clientId.
-	var connectedData string
+	var connectedDataLine string
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") {
-			connectedData = line
+			connectedDataLine = line
 		}
-		if line == "" && connectedData != "" {
+		if line == "" && connectedDataLine != "" {
 			break
 		}
 	}
-	testutil.Contains(t, connectedData, "clientId")
-
-	// Extract the clientId from the JSON.
-	// Format: data: {"clientId":"c1"}
-	start := strings.Index(connectedData, `"clientId":"`) + len(`"clientId":"`)
-	end := strings.Index(connectedData[start:], `"`) + start
-	clientID := connectedData[start:end]
+	connData := parseSSEData(t, connectedDataLine)
+	clientID, ok := connData["clientId"].(string)
+	testutil.True(t, ok && clientID != "", "connected event should contain non-empty clientId string")
 
 	// Publish an OAuth event.
 	hub.PublishOAuth(clientID, &auth.OAuthEvent{
@@ -369,23 +432,24 @@ func TestOAuthSSEReceivesOAuthEvent(t *testing.T) {
 	})
 
 	// Read the oauth event.
-	var eventType, eventData string
+	var eventType, eventDataLine string
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "event: ") {
 			eventType = strings.TrimPrefix(line, "event: ")
 		}
 		if strings.HasPrefix(line, "data: ") {
-			eventData = line
+			eventDataLine = line
 		}
-		if line == "" && eventData != "" {
+		if line == "" && eventDataLine != "" {
 			break
 		}
 	}
 
 	testutil.Equal(t, "oauth", eventType)
-	testutil.Contains(t, eventData, `"token":"access-tok"`)
-	testutil.Contains(t, eventData, `"refreshToken":"refresh-tok"`)
+	oauthData := parseSSEData(t, eventDataLine)
+	testutil.Equal(t, "access-tok", oauthData["token"])
+	testutil.Equal(t, "refresh-tok", oauthData["refreshToken"])
 }
 
 // TestOAuthSSEClientCleanupOnDisconnect tests that OAuth SSE clients are cleaned up.

@@ -44,14 +44,21 @@ func (a *adminAuth) validateToken(token string) bool {
 
 // handleAdminStatus returns whether admin authentication is required.
 func (s *Server) handleAdminStatus(w http.ResponseWriter, r *http.Request) {
+	s.adminMu.RLock()
+	configured := s.adminAuth != nil
+	s.adminMu.RUnlock()
 	httputil.WriteJSON(w, http.StatusOK, map[string]bool{
-		"auth": s.adminAuth != nil,
+		"auth": configured,
 	})
 }
 
 // handleAdminLogin validates the admin password and returns a token.
 func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
-	if s.adminAuth == nil {
+	s.adminMu.RLock()
+	aa := s.adminAuth
+	s.adminMu.RUnlock()
+
+	if aa == nil {
 		httputil.WriteError(w, http.StatusNotFound, "admin auth not configured")
 		return
 	}
@@ -63,13 +70,14 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !s.adminAuth.validatePassword(body.Password) {
-		httputil.WriteError(w, http.StatusUnauthorized, "invalid password")
+	if !aa.validatePassword(body.Password) {
+		httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "invalid password",
+			"https://allyourbase.io/guide/admin-dashboard")
 		return
 	}
 
 	httputil.WriteJSON(w, http.StatusOK, map[string]string{
-		"token": s.adminAuth.token(),
+		"token": aa.token(),
 	})
 }
 
@@ -77,14 +85,19 @@ func (s *Server) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 // When admin.password is not set, all requests pass through.
 func (s *Server) requireAdminToken(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.adminAuth == nil {
+		s.adminMu.RLock()
+		aa := s.adminAuth
+		s.adminMu.RUnlock()
+
+		if aa == nil {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		token, ok := httputil.ExtractBearerToken(r)
-		if !ok || !s.adminAuth.validateToken(token) {
-			httputil.WriteError(w, http.StatusUnauthorized, "admin authentication required")
+		if !ok || !aa.validateToken(token) {
+			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "admin authentication required",
+				"https://allyourbase.io/guide/admin-dashboard")
 			return
 		}
 
@@ -96,7 +109,11 @@ func (s *Server) requireAdminToken(next http.Handler) http.Handler {
 // The new password takes effect immediately for subsequent login attempts.
 // Existing admin tokens are invalidated (new HMAC secret is generated).
 func (s *Server) ResetAdminPassword() (string, error) {
-	if s.adminAuth == nil {
+	s.adminMu.RLock()
+	configured := s.adminAuth != nil
+	s.adminMu.RUnlock()
+
+	if !configured {
 		return "", fmt.Errorf("admin auth not configured")
 	}
 	b := make([]byte, 16)
@@ -104,17 +121,25 @@ func (s *Server) ResetAdminPassword() (string, error) {
 		return "", fmt.Errorf("generating password: %w", err)
 	}
 	pw := hex.EncodeToString(b)
+
+	s.adminMu.Lock()
 	s.adminAuth = newAdminAuth(pw)
+	s.adminMu.Unlock()
+
 	return pw, nil
 }
 
 // isAdminToken checks whether the bearer token in the request is a valid admin token.
 func (s *Server) isAdminToken(r *http.Request) bool {
-	if s.adminAuth == nil {
+	s.adminMu.RLock()
+	aa := s.adminAuth
+	s.adminMu.RUnlock()
+
+	if aa == nil {
 		return false
 	}
 	token, ok := httputil.ExtractBearerToken(r)
-	return ok && s.adminAuth.validateToken(token)
+	return ok && aa.validateToken(token)
 }
 
 // requireAdminOrUserAuth returns middleware that accepts either a valid admin

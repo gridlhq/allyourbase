@@ -33,6 +33,11 @@ func RenderVerification(data TemplateData) (html string, text string, err error)
 	return render("verification.html", data)
 }
 
+// RenderMagicLink renders the magic link login email and returns HTML and plain text.
+func RenderMagicLink(data TemplateData) (html string, text string, err error) {
+	return render("magic_link.html", data)
+}
+
 func render(name string, data TemplateData) (string, string, error) {
 	var buf bytes.Buffer
 	if err := templates.ExecuteTemplate(&buf, name, data); err != nil {

@@ -19,6 +19,10 @@ var sqlCmd = &cobra.Command{
 	Long: `Execute arbitrary SQL via the running AYB server's admin API.
 Requires admin authentication if an admin password is set.
 
+Authentication is resolved in order: --admin-token flag, AYB_ADMIN_TOKEN env var,
+~/.ayb/admin-token file (auto-saved by ayb start). The saved password is
+exchanged for a session token automatically.
+
 Examples:
   ayb sql "SELECT * FROM users LIMIT 10"
   ayb sql "SELECT count(*) FROM posts" --json
@@ -40,6 +44,18 @@ func runSQL(cmd *cobra.Command, args []string) error {
 	}
 	if baseURL == "" {
 		baseURL = serverURL()
+	}
+
+	// If no explicit token, try to log in with the saved admin password.
+	if token == "" {
+		if tokenPath, err := aybAdminTokenPath(); err == nil {
+			if data, err := os.ReadFile(tokenPath); err == nil {
+				password := strings.TrimSpace(string(data))
+				if t, err := adminLogin(baseURL, password); err == nil {
+					token = t
+				}
+			}
+		}
 	}
 
 	// Get query from args or stdin.
@@ -136,6 +152,26 @@ func runSQL(cmd *cobra.Command, args []string) error {
 	w.Flush()
 	fmt.Printf("\n%s\n", dim(fmt.Sprintf("(%d rows, %.1fms)", result.RowCount, result.DurationMs), useColor))
 	return nil
+}
+
+// adminLogin exchanges an admin password for a bearer token via /api/admin/auth.
+func adminLogin(baseURL, password string) (string, error) {
+	body, _ := json.Marshal(map[string]string{"password": password})
+	resp, err := http.Post(baseURL+"/api/admin/auth", "application/json", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("login failed: %d", resp.StatusCode)
+	}
+	var result struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", err
+	}
+	return result.Token, nil
 }
 
 // serverURL returns the base URL for the running AYB server.

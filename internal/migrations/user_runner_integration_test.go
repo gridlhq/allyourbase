@@ -70,7 +70,7 @@ func TestUserRunnerUp(t *testing.T) {
 
 	applied, err := runner.Up(ctx)
 	testutil.NoError(t, err)
-	testutil.Equal(t, applied, 2)
+	testutil.Equal(t, 2, applied)
 
 	// Verify tables exist.
 	var exists bool
@@ -101,12 +101,12 @@ func TestUserRunnerUpIdempotent(t *testing.T) {
 
 	applied1, err := runner.Up(ctx)
 	testutil.NoError(t, err)
-	testutil.Equal(t, applied1, 1)
+	testutil.Equal(t, 1, applied1)
 
 	// Second run should apply zero.
 	applied2, err := runner.Up(ctx)
 	testutil.NoError(t, err)
-	testutil.Equal(t, applied2, 0)
+	testutil.Equal(t, 0, applied2)
 }
 
 func TestUserRunnerUpEmptyDir(t *testing.T) {
@@ -119,7 +119,7 @@ func TestUserRunnerUpEmptyDir(t *testing.T) {
 
 	applied, err := runner.Up(ctx)
 	testutil.NoError(t, err)
-	testutil.Equal(t, applied, 0)
+	testutil.Equal(t, 0, applied)
 }
 
 func TestUserRunnerUpRollsBackOnError(t *testing.T) {
@@ -180,13 +180,13 @@ func TestUserRunnerStatus(t *testing.T) {
 	testutil.SliceLen(t, status, 3)
 
 	// First two should be applied.
-	testutil.Equal(t, status[0].Name, "20260201_a.sql")
+	testutil.Equal(t, "20260201_a.sql", status[0].Name)
 	testutil.True(t, status[0].AppliedAt != nil, "a should be applied")
 
-	testutil.Equal(t, status[1].Name, "20260202_b.sql")
+	testutil.Equal(t, "20260202_b.sql", status[1].Name)
 	testutil.True(t, status[1].AppliedAt != nil, "b should be applied")
 
 	// Third should be pending.
-	testutil.Equal(t, status[2].Name, "20260203_c.sql")
+	testutil.Equal(t, "20260203_c.sql", status[2].Name)
 	testutil.True(t, status[2].AppliedAt == nil, "c should be pending")
 }

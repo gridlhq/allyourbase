@@ -49,7 +49,7 @@ refresh_token_duration = 604800  # 7 days
 [email]
 backend = "log"              # "log", "smtp", or "webhook"
 # from = "noreply@example.com"
-from_name = "AllYourBase"
+from_name = "Allyourbase"
 
 # [email.smtp]
 # host = "smtp.resend.com"
@@ -145,9 +145,12 @@ CLI flags override everything else.
 ayb start      [--database-url] [--port] [--host]   Start the server
 ayb stop                                             Stop the server
 ayb status                                           Show server status
-ayb config     [--config path]                       Print resolved config
-ayb migrate    [up|down|status]                      Run database migrations
-ayb admin      [create-password]                     Admin utilities
+ayb config     [get|set]                             Print/manage config
+ayb migrate    [up|create|status]                    Run database migrations
+ayb admin      [create|reset-password]               Admin utilities
+ayb sql        "SELECT ..."                          Execute SQL
+ayb schema                                           Inspect database schema
+ayb query      <table> [--filter] [--sort]           Query records via REST
 ayb version                                          Print version info
 ```
 

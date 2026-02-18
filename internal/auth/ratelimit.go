@@ -88,7 +88,8 @@ func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 				retryAfter = 1
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
-			httputil.WriteError(w, http.StatusTooManyRequests, "too many requests")
+			httputil.WriteErrorWithDocURL(w, http.StatusTooManyRequests, "too many requests",
+				"https://allyourbase.io/guide/authentication")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -128,20 +129,35 @@ func (rl *RateLimiter) cleanup() {
 }
 
 func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP (closest to client). XFF is comma-separated.
-		ip := xff
-		if i := strings.IndexByte(xff, ','); i >= 0 {
-			ip = xff[:i]
-		}
-		return strings.TrimSpace(ip)
-	}
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		return strings.TrimSpace(xri)
-	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
+
+	// Only trust proxy headers when the direct connection is from a
+	// private/loopback address (i.e. the request came through a reverse proxy).
+	// Without this check, any client can spoof X-Forwarded-For to bypass rate limits.
+	if isPrivateIP(host) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			ip := xff
+			if i := strings.IndexByte(xff, ','); i >= 0 {
+				ip = xff[:i]
+			}
+			return strings.TrimSpace(ip)
+		}
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			return strings.TrimSpace(xri)
+		}
+	}
+
 	return host
+}
+
+// isPrivateIP checks whether an IP string is a private/loopback address.
+func isPrivateIP(ip string) bool {
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return false
+	}
+	return parsed.IsLoopback() || parsed.IsPrivate()
 }

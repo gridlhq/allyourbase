@@ -848,6 +848,7 @@ function DeleteConfirm({
 }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirmRef = useRef<() => Promise<void>>();
 
   const pkDisplay = primaryKey.map((k) => `${k}=${row[k]}`).join(", ");
 
@@ -861,6 +862,23 @@ function DeleteConfirm({
       setDeleting(false);
     }
   };
+
+  confirmRef.current = handleConfirm;
+
+  // Keyboard: Enter confirms, Cmd+Delete/Backspace or Escape cancels
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        confirmRef.current?.();
+      } else if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && (e.key === "Delete" || e.key === "Backspace"))) {
+        e.preventDefault();
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -911,6 +929,7 @@ function BatchDeleteConfirm({
 }) {
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const confirmRef = useRef<() => Promise<void>>();
 
   const handleConfirm = async () => {
     setDeleting(true);
@@ -922,6 +941,23 @@ function BatchDeleteConfirm({
       setDeleting(false);
     }
   };
+
+  confirmRef.current = handleConfirm;
+
+  // Keyboard: Enter confirms, Cmd+Delete/Backspace or Escape cancels
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        confirmRef.current?.();
+      } else if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && (e.key === "Delete" || e.key === "Backspace"))) {
+        e.preventDefault();
+        onCancel();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onCancel]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">

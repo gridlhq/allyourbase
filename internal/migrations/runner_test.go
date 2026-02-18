@@ -100,7 +100,7 @@ func TestRunMigrationsIdempotent(t *testing.T) {
 	// Second run should apply zero.
 	applied2, err := runner.Run(ctx)
 	testutil.NoError(t, err)
-	testutil.Equal(t, applied2, 0)
+	testutil.Equal(t, 0, applied2)
 
 	// First run should have applied at least one.
 	testutil.True(t, applied1 >= 1, "first run should apply migrations")
@@ -127,6 +127,6 @@ func TestGetApplied(t *testing.T) {
 	applied, err = runner.GetApplied(ctx)
 	testutil.NoError(t, err)
 	testutil.True(t, len(applied) >= 1, "should have applied migrations")
-	testutil.Equal(t, applied[0].Name, "001_ayb_meta.sql")
+	testutil.Equal(t, "001_ayb_meta.sql", applied[0].Name)
 	testutil.False(t, applied[0].AppliedAt.IsZero(), "applied_at should be set")
 }

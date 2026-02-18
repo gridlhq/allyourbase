@@ -15,7 +15,7 @@ func TestSubscribeAndPublish(t *testing.T) {
 	client := hub.Subscribe(map[string]bool{"posts": true})
 	defer hub.Unsubscribe(client.ID)
 
-	testutil.Equal(t, hub.ClientCount(), 1)
+	testutil.Equal(t, 1, hub.ClientCount())
 	testutil.True(t, client.ID != "", "client should have an ID")
 
 	hub.Publish(&realtime.Event{
@@ -26,9 +26,9 @@ func TestSubscribeAndPublish(t *testing.T) {
 
 	select {
 	case event := <-client.Events():
-		testutil.Equal(t, event.Action, "create")
-		testutil.Equal(t, event.Table, "posts")
-		testutil.Equal(t, event.Record["title"], "Hello")
+		testutil.Equal(t, "create", event.Action)
+		testutil.Equal(t, "posts", event.Table)
+		testutil.Equal(t, "Hello", event.Record["title"])
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("timed out waiting for event")
 	}
@@ -58,10 +58,10 @@ func TestUnsubscribeRemovesClient(t *testing.T) {
 	hub := realtime.NewHub(testutil.DiscardLogger())
 
 	client := hub.Subscribe(map[string]bool{"posts": true})
-	testutil.Equal(t, hub.ClientCount(), 1)
+	testutil.Equal(t, 1, hub.ClientCount())
 
 	hub.Unsubscribe(client.ID)
-	testutil.Equal(t, hub.ClientCount(), 0)
+	testutil.Equal(t, 0, hub.ClientCount())
 
 	// Channel should be closed.
 	_, ok := <-client.Events()
@@ -74,7 +74,7 @@ func TestUnsubscribeIdempotent(t *testing.T) {
 	client := hub.Subscribe(map[string]bool{"posts": true})
 	hub.Unsubscribe(client.ID)
 	hub.Unsubscribe(client.ID) // Should not panic.
-	testutil.Equal(t, hub.ClientCount(), 0)
+	testutil.Equal(t, 0, hub.ClientCount())
 }
 
 func TestMultipleClients(t *testing.T) {
@@ -87,7 +87,7 @@ func TestMultipleClients(t *testing.T) {
 	c3 := hub.Subscribe(map[string]bool{"comments": true})
 	defer hub.Unsubscribe(c3.ID)
 
-	testutil.Equal(t, hub.ClientCount(), 3)
+	testutil.Equal(t, 3, hub.ClientCount())
 
 	hub.Publish(&realtime.Event{Action: "create", Table: "posts", Record: map[string]any{"id": 1}})
 
@@ -95,7 +95,7 @@ func TestMultipleClients(t *testing.T) {
 	for _, c := range []*realtime.Client{c1, c2} {
 		select {
 		case event := <-c.Events():
-			testutil.Equal(t, event.Table, "posts")
+			testutil.Equal(t, "posts", event.Table)
 		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("client %s should receive posts event", c.ID)
 		}
@@ -128,7 +128,7 @@ func TestPublishMultipleActions(t *testing.T) {
 	for _, want := range events {
 		select {
 		case got := <-client.Events():
-			testutil.Equal(t, got.Action, want.Action)
+			testutil.Equal(t, want.Action, got.Action)
 		case <-time.After(100 * time.Millisecond):
 			t.Fatalf("timed out waiting for %s event", want.Action)
 		}
@@ -192,10 +192,10 @@ func TestCloseDisconnectsAllClients(t *testing.T) {
 
 	c1 := hub.Subscribe(map[string]bool{"posts": true})
 	c2 := hub.Subscribe(map[string]bool{"comments": true})
-	testutil.Equal(t, hub.ClientCount(), 2)
+	testutil.Equal(t, 2, hub.ClientCount())
 
 	hub.Close()
-	testutil.Equal(t, hub.ClientCount(), 0)
+	testutil.Equal(t, 0, hub.ClientCount())
 
 	// Both client channels should be closed.
 	_, ok1 := <-c1.Events()
@@ -210,7 +210,7 @@ func TestCloseIdempotent(t *testing.T) {
 	hub.Subscribe(map[string]bool{"posts": true})
 	hub.Close()
 	hub.Close() // Should not panic.
-	testutil.Equal(t, hub.ClientCount(), 0)
+	testutil.Equal(t, 0, hub.ClientCount())
 }
 
 // --- OAuth Hub Tests ---
@@ -222,8 +222,8 @@ func TestSubscribeOAuthCreatesClient(t *testing.T) {
 	defer hub.Unsubscribe(client.ID)
 
 	testutil.True(t, client.ID != "", "oauth client should have an ID")
-	testutil.Equal(t, hub.ClientCount(), 1)
-	testutil.True(t, client.OAuthEvents() != nil, "oauth client should have oauth channel")
+	testutil.Equal(t, 1, hub.ClientCount())
+	testutil.NotNil(t, client.OAuthEvents())
 }
 
 func TestSubscribeOAuthUniqueIDs(t *testing.T) {
@@ -278,8 +278,8 @@ func TestPublishOAuthTargetedDelivery(t *testing.T) {
 	// c1 should receive the event.
 	select {
 	case got := <-c1.OAuthEvents():
-		testutil.Equal(t, got.Token, "test-token")
-		testutil.Equal(t, got.RefreshToken, "test-refresh")
+		testutil.Equal(t, "test-token", got.Token)
+		testutil.Equal(t, "test-refresh", got.RefreshToken)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("c1 should receive oauth event")
 	}
@@ -303,8 +303,8 @@ func TestPublishOAuthWithError(t *testing.T) {
 
 	select {
 	case got := <-client.OAuthEvents():
-		testutil.Equal(t, got.Error, "access denied")
-		testutil.Equal(t, got.Token, "")
+		testutil.Equal(t, "access denied", got.Error)
+		testutil.Equal(t, "", got.Token)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("should receive oauth error event")
 	}
@@ -375,13 +375,13 @@ func TestConcurrentSubscribeOAuthCreatesDistinctClients(t *testing.T) {
 		testutil.False(t, ids[c.ID], "all client IDs should be unique, got duplicate: "+c.ID)
 		ids[c.ID] = true
 	}
-	testutil.Equal(t, hub.ClientCount(), n)
+	testutil.Equal(t, n, hub.ClientCount())
 
 	// Cleanup.
 	for _, c := range clients {
 		hub.Unsubscribe(c.ID)
 	}
-	testutil.Equal(t, hub.ClientCount(), 0)
+	testutil.Equal(t, 0, hub.ClientCount())
 }
 
 func TestPublishOAuthAfterClientDisconnectIsNoop(t *testing.T) {
@@ -413,7 +413,7 @@ func TestPublishOAuthBufferFullDropsEvent(t *testing.T) {
 	// Drain and verify we only get the first.
 	select {
 	case got := <-client.OAuthEvents():
-		testutil.Equal(t, got.Token, "first")
+		testutil.Equal(t, "first", got.Token)
 	case <-time.After(100 * time.Millisecond):
 		t.Fatal("should receive first event")
 	}

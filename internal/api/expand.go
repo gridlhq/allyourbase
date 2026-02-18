@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/allyourbase/ayb/internal/auth"
 	"github.com/allyourbase/ayb/internal/schema"
 )
 
@@ -13,10 +14,13 @@ const maxExpandDepth = 2
 
 // expandRecords populates the "expand" key on each record for the given expand parameter.
 // Supports comma-separated relations and dot-notation for nested expansion (depth limit 2).
+// Claims are checked to enforce API key table restrictions on related tables.
 func expandRecords(ctx context.Context, pool Querier, sc *schema.SchemaCache, tbl *schema.Table, records []map[string]any, expandParam string, logger *slog.Logger) {
 	if len(records) == 0 || expandParam == "" {
 		return
 	}
+
+	claims := auth.ClaimsFromContext(ctx)
 
 	relations := strings.Split(expandParam, ",")
 	count := 0
@@ -37,7 +41,7 @@ func expandRecords(ctx context.Context, pool Querier, sc *schema.SchemaCache, tb
 			parts = parts[:maxExpandDepth]
 		}
 
-		expandRelation(ctx, pool, sc, tbl, records, parts, 0, logger)
+		expandRelation(ctx, pool, sc, tbl, records, parts, 0, claims, logger)
 	}
 }
 
@@ -56,7 +60,8 @@ func findRelation(tbl *schema.Table, name string) *schema.Relationship {
 }
 
 // expandRelation expands a single relation (possibly nested) on the given records.
-func expandRelation(ctx context.Context, pool Querier, sc *schema.SchemaCache, tbl *schema.Table, records []map[string]any, relPath []string, depth int, logger *slog.Logger) {
+// Table scope is checked for each related table to prevent API key scope bypass.
+func expandRelation(ctx context.Context, pool Querier, sc *schema.SchemaCache, tbl *schema.Table, records []map[string]any, relPath []string, depth int, claims *auth.Claims, logger *slog.Logger) {
 	if depth >= maxExpandDepth || len(relPath) == 0 {
 		return
 	}
@@ -73,11 +78,16 @@ func expandRelation(ctx context.Context, pool Querier, sc *schema.SchemaCache, t
 		return
 	}
 
+	// Check API key table restrictions for the related table.
+	if err := auth.CheckTableScope(claims, relTable.Name); err != nil {
+		return // silently skip — the key is not allowed to see this table
+	}
+
 	switch rel.Type {
 	case "many-to-one":
-		expandManyToOne(ctx, pool, sc, relTable, records, rel, relPath, depth, logger)
+		expandManyToOne(ctx, pool, sc, relTable, records, rel, relPath, depth, claims, logger)
 	case "one-to-many":
-		expandOneToMany(ctx, pool, sc, relTable, records, rel, relPath, depth, logger)
+		expandOneToMany(ctx, pool, sc, relTable, records, rel, relPath, depth, claims, logger)
 	}
 }
 
@@ -129,7 +139,7 @@ func fetchRelated(ctx context.Context, pool Querier, relTable *schema.Table, tar
 
 // expandManyToOne expands a many-to-one relationship (e.g., post.author_id → user).
 // Collects unique FK values, does a single batch query, and attaches results.
-func expandManyToOne(ctx context.Context, pool Querier, sc *schema.SchemaCache, relTable *schema.Table, records []map[string]any, rel *schema.Relationship, relPath []string, depth int, logger *slog.Logger) {
+func expandManyToOne(ctx context.Context, pool Querier, sc *schema.SchemaCache, relTable *schema.Table, records []map[string]any, rel *schema.Relationship, relPath []string, depth int, claims *auth.Claims, logger *slog.Logger) {
 	if len(rel.FromColumns) == 0 || len(rel.ToColumns) == 0 {
 		return
 	}
@@ -149,7 +159,7 @@ func expandManyToOne(ctx context.Context, pool Querier, sc *schema.SchemaCache, 
 
 	// Nested expansion on the related records.
 	if len(relPath) > 1 {
-		expandRelation(ctx, pool, sc, relTable, related, relPath[1:], depth+1, logger)
+		expandRelation(ctx, pool, sc, relTable, related, relPath[1:], depth+1, claims, logger)
 	}
 
 	// Index by target column value.
@@ -172,7 +182,7 @@ func expandManyToOne(ctx context.Context, pool Querier, sc *schema.SchemaCache, 
 }
 
 // expandOneToMany expands a one-to-many relationship (e.g., user → posts).
-func expandOneToMany(ctx context.Context, pool Querier, sc *schema.SchemaCache, relTable *schema.Table, records []map[string]any, rel *schema.Relationship, relPath []string, depth int, logger *slog.Logger) {
+func expandOneToMany(ctx context.Context, pool Querier, sc *schema.SchemaCache, relTable *schema.Table, records []map[string]any, rel *schema.Relationship, relPath []string, depth int, claims *auth.Claims, logger *slog.Logger) {
 	if len(rel.FromColumns) == 0 || len(rel.ToColumns) == 0 {
 		return
 	}
@@ -192,7 +202,7 @@ func expandOneToMany(ctx context.Context, pool Querier, sc *schema.SchemaCache, 
 
 	// Nested expansion.
 	if len(relPath) > 1 {
-		expandRelation(ctx, pool, sc, relTable, related, relPath[1:], depth+1, logger)
+		expandRelation(ctx, pool, sc, relTable, related, relPath[1:], depth+1, claims, logger)
 	}
 
 	// Group by target column value.

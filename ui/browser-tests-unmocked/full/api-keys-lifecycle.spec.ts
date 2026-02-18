@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, execSQL } from "../fixtures";
 
 /**
  * FULL E2E TEST: API Keys Lifecycle
@@ -9,35 +9,88 @@ import { test, expect } from "@playwright/test";
  * - Verify key displayed in creation modal
  * - Verify key appears in list
  * - Revoke API key
- * - Cleanup: Remove test user
- *
- * UI-ONLY: No direct API calls (except SQL via UI)
  */
 
 test.describe("API Keys Lifecycle (Full E2E)", () => {
-  test("create, view, and revoke API key", async ({ page }) => {
+  const pendingCleanup: string[] = [];
+
+  test.afterEach(async ({ request, adminToken }) => {
+    for (const sql of pendingCleanup) {
+      await execSQL(request, adminToken, sql).catch(() => {});
+    }
+    pendingCleanup.length = 0;
+  });
+
+  test("seeded API key renders in list view", async ({ page, request, adminToken }) => {
     const runId = Date.now();
+    const keyName = `seed-key-${runId}`;
+    const testEmail = `apikey-seed-${runId}@test.com`;
+
+    // Register cleanup early so afterEach runs it even on failure
+    pendingCleanup.push(
+      `DELETE FROM _ayb_api_keys WHERE name = '${keyName}';`,
+      `DELETE FROM _ayb_users WHERE email = '${testEmail}';`,
+    );
+
+    // Arrange: create user and API key via SQL
+    await execSQL(
+      request,
+      adminToken,
+      `INSERT INTO _ayb_users (email, password_hash) VALUES ('${testEmail}', '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g') ON CONFLICT DO NOTHING;`,
+    );
+    const userResult = await execSQL(
+      request,
+      adminToken,
+      `SELECT id FROM _ayb_users WHERE email = '${testEmail}';`,
+    );
+    const userId = userResult.rows[0][0];
+    await execSQL(
+      request,
+      adminToken,
+      `INSERT INTO _ayb_api_keys (name, key_hash, key_prefix, user_id) VALUES ('${keyName}', 'seedhash${runId}', 'ayb_seed', '${userId}');`,
+    );
+
+    // Act: navigate to API Keys page
+    await page.goto("/admin/");
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    const sidebar = page.locator("aside");
+    const apiKeysButton = sidebar.getByRole("button", { name: /^API Keys$/i });
+    await apiKeysButton.click();
+    await expect(page.getByRole("heading", { name: /API Keys/i })).toBeVisible({ timeout: 5000 });
+
+    // Assert: seeded key name appears in the list
+    await expect(page.getByText(keyName).first()).toBeVisible({ timeout: 5000 });
+
+    // Cleanup handled by afterEach
+  });
+
+  test("create, view, and revoke API key", async ({ page, request, adminToken }) => {
+    const runId = Date.now();
+    const testEmail = `apikey-test-${runId}@test.com`;
+    const keyName = `test-key-${runId}`;
+
+    // Register cleanup early so afterEach runs it even on failure
+    pendingCleanup.push(
+      `DELETE FROM _ayb_api_keys WHERE name = '${keyName}';`,
+      `DELETE FROM _ayb_users WHERE email = '${testEmail}';`,
+    );
 
     // ============================================================
-    // Setup: Create a test user via SQL so we have a user_id for key creation
+    // Setup: Create a test user via SQL
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("AYB Admin").first()).toBeVisible();
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
 
-    // Navigate to SQL Editor via sidebar
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    // Create test user via SQL
-    const sqlInput = page.locator("textarea").first();
+    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
     await expect(sqlInput).toBeVisible({ timeout: 5000 });
 
-    const testEmail = `apikey-test-${runId}@test.com`;
     await sqlInput.fill(
       `INSERT INTO _ayb_users (email, password_hash) VALUES ('${testEmail}', '$argon2id$v=19$m=65536,t=3,p=4$dGVzdHNhbHQ$dGVzdGhhc2g') ON CONFLICT DO NOTHING RETURNING id;`
     );
     await page.getByRole("button", { name: /run|execute/i }).click();
-    await page.waitForTimeout(500);
 
     // ============================================================
     // Navigate to API Keys
@@ -47,42 +100,25 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     await apiKeysButton.click();
 
     // Verify API Keys view loaded
-    await expect(page.getByText(/API Keys/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /API Keys/i })).toBeVisible({ timeout: 5000 });
 
     // ============================================================
     // CREATE: Add new API key
     // ============================================================
-    const createButton = page.getByRole("button", { name: /create key|new key|add/i }).or(
-      page.locator("button").filter({ has: page.locator("svg.lucide-plus") })
-    );
+    const createButton = page.getByRole("button", { name: /create key|new key|add/i });
     await expect(createButton.first()).toBeVisible({ timeout: 3000 });
     await createButton.first().click();
 
     // Fill creation form
-    const keyName = `test-key-${runId}`;
+    await page.getByLabel("Key name").fill(keyName);
 
-    // Name input (ApiKeys component uses aria-label="Key name")
-    const nameInput = page.locator('[aria-label="Key name"]').or(
-      page.locator('input[name="name"]')
-    ).or(
-      page.getByPlaceholder(/name/i)
-    ).first();
-    await expect(nameInput).toBeVisible({ timeout: 3000 });
-    await nameInput.fill(keyName);
-
-    // User selector (aria-label="User" or aria-label="User ID")
-    const userSelect = page.locator('[aria-label="User"]').or(
-      page.locator('[aria-label="User ID"]')
-    ).or(page.locator('select').first());
-    if (await userSelect.first().isVisible({ timeout: 2000 }).catch(() => false)) {
-      // Try to select the first non-empty option
-      const selectEl = userSelect.first();
-      const options = selectEl.locator("option");
-      const optCount = await options.count();
-      if (optCount > 1) {
-        await selectEl.selectOption({ index: 1 });
-      }
-    }
+    // User selector
+    const userSelect = page.getByLabel("User");
+    await expect(userSelect).toBeVisible({ timeout: 2000 });
+    const options = userSelect.locator("option");
+    const optCount = await options.count();
+    expect(optCount).toBeGreaterThan(1);
+    await userSelect.selectOption({ index: 1 });
 
     // Submit
     const submitBtn = page.getByRole("button", { name: /^create$|^save$/i });
@@ -92,10 +128,7 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     // ============================================================
     // VERIFY: Key created modal shows the key
     // ============================================================
-    // The creation modal shows the key one time
-    const createdModal = page.getByText(/created|key:/i);
-    const keyDisplay = page.locator("code, pre, input[readonly]");
-    await expect(createdModal.or(keyDisplay.first()).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText("API Key Created")).toBeVisible({ timeout: 5000 });
 
     // Close the created modal by clicking Done
     const doneBtn = page.getByRole("button", { name: /^done$/i });
@@ -110,34 +143,28 @@ test.describe("API Keys Lifecycle (Full E2E)", () => {
     // ============================================================
     await expect(page.getByText(keyName).first()).toBeVisible({ timeout: 5000 });
 
-    // Verify Active badge
-    const activeBadge = page.getByText("Active");
-    await expect(activeBadge.first()).toBeVisible({ timeout: 2000 }).catch(() => {
-      // Badge may not exist as separate text — that's OK
-    });
+    // Verify Active badge on the key's row
+    const activeKeyRow = page.locator("tr").filter({ hasText: keyName });
+    await expect(activeKeyRow.getByText("Active")).toBeVisible({ timeout: 2000 });
 
     // ============================================================
     // REVOKE: Revoke the API key
     // ============================================================
-    // Use "tr" only (not "div") to avoid matching modal overlay divs
     const keyRow = page.locator("tr").filter({ hasText: keyName }).first();
-    const revokeButton = keyRow.getByRole("button", { name: /revoke/i }).or(
-      keyRow.locator('button[title*="evoke"], button[title="Delete"]')
-    ).first();
+    const revokeButton = keyRow.getByRole("button", { name: "Revoke key" });
 
     await expect(revokeButton).toBeVisible({ timeout: 3000 });
     await revokeButton.click();
 
     // Confirm revocation
     const confirmBtn = page.getByRole("button", { name: /^revoke$|^delete$|^confirm$/i });
-    if (await confirmBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await confirmBtn.click();
-    }
+    await expect(confirmBtn).toBeVisible({ timeout: 2000 });
+    await confirmBtn.click();
 
-    // Verify revoked — the key row should show "Revoked" status
+    // Verify revoked
     const revokedKeyRow = page.locator("tr").filter({ hasText: keyName });
     await expect(revokedKeyRow.getByText("Revoked")).toBeVisible({ timeout: 5000 });
 
-    console.log("✅ Full API keys lifecycle test passed");
+    // Cleanup handled by afterEach
   });
 });

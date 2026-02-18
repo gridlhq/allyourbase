@@ -26,7 +26,7 @@ describe("Login", () => {
   it("renders the login form", () => {
     render(<Login onSuccess={onSuccess} />);
 
-    expect(screen.getByText("AYB Admin")).toBeInTheDocument();
+    expect(screen.getByText("👾 Allyourbase")).toBeInTheDocument();
     expect(screen.getByText("Password")).toBeInTheDocument();
     expect(getPasswordInput()).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();

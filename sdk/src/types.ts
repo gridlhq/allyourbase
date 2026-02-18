@@ -13,6 +13,7 @@ export interface ListParams {
   perPage?: number;
   sort?: string;
   filter?: string;
+  search?: string;
   fields?: string;
   expand?: string;
   skipTotal?: boolean;

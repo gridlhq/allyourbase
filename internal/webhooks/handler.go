@@ -125,7 +125,7 @@ func (h *Handler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg := validateRequest(&req); msg != "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg,
-			"https://allyourbase.io/guide/webhooks")
+			"https://allyourbase.io/guide/api-reference")
 		return
 	}
 
@@ -188,7 +188,7 @@ func (h *Handler) handleUpdate(w http.ResponseWriter, r *http.Request) {
 		for _, e := range req.Events {
 			if !validEvents[e] {
 				httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid event: "+e+" (must be create, update, or delete)",
-					"https://allyourbase.io/guide/webhooks")
+					"https://allyourbase.io/guide/api-reference")
 				return
 			}
 		}

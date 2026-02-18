@@ -20,7 +20,7 @@ func TestLocalBackendPutAndGet(t *testing.T) {
 	data := []byte("hello world")
 	n, err := b.Put(ctx, "images", "photo.jpg", bytes.NewReader(data))
 	testutil.NoError(t, err)
-	testutil.Equal(t, n, int64(len(data)))
+	testutil.Equal(t, int64(len(data)), n)
 
 	// File exists on disk.
 	_, err = os.Stat(filepath.Join(dir, "images", "photo.jpg"))
@@ -33,7 +33,7 @@ func TestLocalBackendPutAndGet(t *testing.T) {
 
 	got, err := io.ReadAll(rc)
 	testutil.NoError(t, err)
-	testutil.Equal(t, string(got), "hello world")
+	testutil.Equal(t, "hello world", string(got))
 }
 
 func TestLocalBackendNestedPath(t *testing.T) {
@@ -52,7 +52,7 @@ func TestLocalBackendNestedPath(t *testing.T) {
 
 	got, err := io.ReadAll(rc)
 	testutil.NoError(t, err)
-	testutil.Equal(t, string(got), "nested file")
+	testutil.Equal(t, "nested file", string(got))
 }
 
 func TestLocalBackendGetNotFound(t *testing.T) {
@@ -132,7 +132,7 @@ func TestLocalBackendOverwrite(t *testing.T) {
 
 	got, err := io.ReadAll(rc)
 	testutil.NoError(t, err)
-	testutil.Equal(t, string(got), "version 2")
+	testutil.Equal(t, "version 2", string(got))
 }
 
 func TestNewLocalBackendCreatesDir(t *testing.T) {

@@ -20,15 +20,19 @@ func newTestService() *Service {
 	}
 }
 
-func generateTestToken(svc *Service, userID, email string) string {
+func generateTestToken(t *testing.T, svc *Service, userID, email string) string {
+	t.Helper()
 	user := &User{ID: userID, Email: email}
-	token, _ := svc.generateToken(user)
+	token, err := svc.generateToken(user)
+	if err != nil {
+		t.Fatalf("generating test token: %v", err)
+	}
 	return token
 }
 
 func TestRequireAuthValidToken(t *testing.T) {
 	svc := newTestService()
-	token := generateTestToken(svc, "user-1", "test@example.com")
+	token := generateTestToken(t, svc, "user-1", "test@example.com")
 
 	var gotClaims *Claims
 	handler := RequireAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -82,7 +86,7 @@ func TestRequireAuthExpiredToken(t *testing.T) {
 		jwtSecret: []byte(testSecret),
 		tokenDur:  -time.Hour,
 	}
-	token := generateTestToken(svc, "user-1", "test@example.com")
+	token := generateTestToken(t, svc, "user-1", "test@example.com")
 
 	validSvc := newTestService()
 	handler := RequireAuth(validSvc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -133,7 +137,7 @@ func TestOptionalAuthInvalidToken(t *testing.T) {
 
 func TestOptionalAuthValidToken(t *testing.T) {
 	svc := newTestService()
-	token := generateTestToken(svc, "user-2", "other@example.com")
+	token := generateTestToken(t, svc, "user-2", "other@example.com")
 
 	var gotClaims *Claims
 	handler := OptionalAuth(svc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -146,9 +150,9 @@ func TestOptionalAuthValidToken(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	testutil.NotNil(t, gotClaims)
-	testutil.Equal(t, gotClaims.Subject, "user-2")
+	testutil.Equal(t, "user-2", gotClaims.Subject)
 }
 
 func TestClaimsFromContextNil(t *testing.T) {
@@ -169,7 +173,7 @@ func TestRequireAuthMissingHeaderDocURL(t *testing.T) {
 
 	var resp httputil.ErrorResponse
 	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, "https://allyourbase.io/guide/auth", resp.DocURL)
+	testutil.Equal(t, "https://allyourbase.io/guide/authentication", resp.DocURL)
 }
 
 func TestRequireAuthExpiredTokenDocURL(t *testing.T) {
@@ -177,7 +181,7 @@ func TestRequireAuthExpiredTokenDocURL(t *testing.T) {
 		jwtSecret: []byte(testSecret),
 		tokenDur:  -time.Hour,
 	}
-	token := generateTestToken(svc, "user-1", "test@example.com")
+	token := generateTestToken(t, svc, "user-1", "test@example.com")
 
 	validSvc := newTestService()
 	handler := RequireAuth(validSvc)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -191,5 +195,5 @@ func TestRequireAuthExpiredTokenDocURL(t *testing.T) {
 
 	var resp httputil.ErrorResponse
 	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
-	testutil.Equal(t, "https://allyourbase.io/guide/auth", resp.DocURL)
+	testutil.Equal(t, "https://allyourbase.io/guide/authentication", resp.DocURL)
 }

@@ -28,6 +28,11 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
 }
 
+function emitUnauthorized() {
+  clearToken();
+  window.dispatchEvent(new Event("ayb:unauthorized"));
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers: Record<string, string> = {
     ...(init?.headers as Record<string, string>),
@@ -38,6 +43,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   const res = await fetch(path, { ...init, headers });
   if (!res.ok) {
+    if (res.status === 401) {
+      emitUnauthorized();
+    }
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -138,6 +146,7 @@ export async function deleteRecord(
     headers,
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -190,6 +199,7 @@ export async function callRpc(
     return { status: 204, data: null };
   }
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -200,7 +210,8 @@ export async function callRpc(
 // --- Webhooks ---
 
 export async function listWebhooks(): Promise<WebhookResponse[]> {
-  return request("/api/webhooks");
+  const res = await request<{ items: WebhookResponse[] }>("/api/webhooks");
+  return res.items;
 }
 
 export async function createWebhook(
@@ -250,6 +261,7 @@ export async function deleteWebhook(id: string): Promise<void> {
     headers,
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -279,6 +291,7 @@ export async function deleteUser(id: string): Promise<void> {
     headers,
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -320,6 +333,7 @@ export async function revokeApiKey(id: string): Promise<void> {
     headers,
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -356,6 +370,7 @@ export async function uploadStorageFile(
     body: formData,
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -376,6 +391,7 @@ export async function deleteStorageFile(
     headers,
   });
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }
@@ -495,6 +511,7 @@ export async function deleteRlsPolicy(
     { method: "DELETE", headers },
   );
   if (!res.ok) {
+    if (res.status === 401) emitUnauthorized();
     const body = await res.json().catch(() => ({ message: res.statusText }));
     throw new ApiError(res.status, body.message || res.statusText);
   }

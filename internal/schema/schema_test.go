@@ -20,7 +20,7 @@ func TestRelkindToString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.relkind+"->"+tt.want, func(t *testing.T) {
-			testutil.Equal(t, relkindToString(tt.relkind), tt.want)
+			testutil.Equal(t, tt.want, relkindToString(tt.relkind))
 		})
 	}
 }
@@ -40,7 +40,7 @@ func TestFkActionToString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.action+"->"+tt.want, func(t *testing.T) {
-			testutil.Equal(t, fkActionToString(tt.action), tt.want)
+			testutil.Equal(t, tt.want, fkActionToString(tt.action))
 		})
 	}
 }
@@ -57,15 +57,15 @@ func TestTableByName(t *testing.T) {
 	t.Run("finds public table by name", func(t *testing.T) {
 		tbl := sc.TableByName("users")
 		testutil.NotNil(t, tbl)
-		testutil.Equal(t, tbl.Name, "users")
-		testutil.Equal(t, tbl.Schema, "public")
+		testutil.Equal(t, "users", tbl.Name)
+		testutil.Equal(t, "public", tbl.Schema)
 	})
 
 	t.Run("finds non-public table by fallback scan", func(t *testing.T) {
 		tbl := sc.TableByName("items")
 		testutil.NotNil(t, tbl)
-		testutil.Equal(t, tbl.Name, "items")
-		testutil.Equal(t, tbl.Schema, "other")
+		testutil.Equal(t, "items", tbl.Name)
+		testutil.Equal(t, "other", tbl.Schema)
 	})
 
 	t.Run("returns nil for missing table", func(t *testing.T) {
@@ -82,7 +82,7 @@ func TestTableByName(t *testing.T) {
 		}
 		tbl := sc2.TableByName("data")
 		testutil.NotNil(t, tbl)
-		testutil.Equal(t, tbl.Schema, "public")
+		testutil.Equal(t, "public", tbl.Schema)
 	})
 }
 
@@ -98,8 +98,8 @@ func TestColumnByName(t *testing.T) {
 	t.Run("finds existing column", func(t *testing.T) {
 		col := tbl.ColumnByName("name")
 		testutil.NotNil(t, col)
-		testutil.Equal(t, col.Name, "name")
-		testutil.Equal(t, col.Position, 2)
+		testutil.Equal(t, "name", col.Name)
+		testutil.Equal(t, 2, col.Position)
 	})
 
 	t.Run("returns nil for missing column", func(t *testing.T) {
@@ -165,7 +165,7 @@ func TestDeriveFieldName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := deriveFieldName(tt.columns, tt.refTable)
-			testutil.Equal(t, got, tt.want)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -193,16 +193,16 @@ func TestBuildRelationships(t *testing.T) {
 	// posts should have a many-to-one relationship to users.
 	posts := tables["public.posts"]
 	testutil.SliceLen(t, posts.Relationships, 1)
-	testutil.Equal(t, posts.Relationships[0].Type, "many-to-one")
-	testutil.Equal(t, posts.Relationships[0].ToTable, "users")
-	testutil.Equal(t, posts.Relationships[0].FieldName, "author")
+	testutil.Equal(t, "many-to-one", posts.Relationships[0].Type)
+	testutil.Equal(t, "users", posts.Relationships[0].ToTable)
+	testutil.Equal(t, "author", posts.Relationships[0].FieldName)
 
 	// users should have a one-to-many relationship from posts.
 	users := tables["public.users"]
 	testutil.SliceLen(t, users.Relationships, 1)
-	testutil.Equal(t, users.Relationships[0].Type, "one-to-many")
-	testutil.Equal(t, users.Relationships[0].ToTable, "posts")
-	testutil.Equal(t, users.Relationships[0].FieldName, "posts")
+	testutil.Equal(t, "one-to-many", users.Relationships[0].Type)
+	testutil.Equal(t, "posts", users.Relationships[0].ToTable)
+	testutil.Equal(t, "posts", users.Relationships[0].FieldName)
 }
 
 func TestSchemaFilter(t *testing.T) {

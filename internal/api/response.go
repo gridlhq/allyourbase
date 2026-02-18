@@ -29,6 +29,21 @@ var (
 	docURL              = httputil.DocURL
 )
 
+// WriteFieldErrorWithDocURL writes an error response with field-level validation detail and a doc URL.
+func writeFieldErrorWithDocURL(w http.ResponseWriter, status int, message string, field, fieldCode, fieldMsg, docURL string) {
+	httputil.WriteJSON(w, status, httputil.ErrorResponse{
+		Code:    status,
+		Message: message,
+		Data: map[string]any{
+			field: map[string]string{
+				"code":    fieldCode,
+				"message": fieldMsg,
+			},
+		},
+		DocURL: docURL,
+	})
+}
+
 // mapPGError converts a pgx/pgconn error to an appropriate HTTP response.
 // Returns true if a PG error was handled.
 func mapPGError(w http.ResponseWriter, err error) bool {
@@ -46,23 +61,25 @@ func mapPGError(w http.ResponseWriter, err error) bool {
 		return false
 	}
 
+	constraintDoc := docURL("/guide/api-reference#error-format")
+
 	switch pgErr.Code {
 	case "P0001": // raise_exception — user-defined exceptions from PL/pgSQL RAISE EXCEPTION
 		writeError(w, http.StatusBadRequest, pgErr.Message)
 	case "23505": // unique_violation
-		writeFieldError(w, http.StatusConflict, "unique constraint violation",
-			pgErr.ConstraintName, "unique_violation", pgErr.Detail)
+		writeFieldErrorWithDocURL(w, http.StatusConflict, "unique constraint violation",
+			pgErr.ConstraintName, "unique_violation", pgErr.Detail, constraintDoc)
 	case "23503": // foreign_key_violation
-		writeFieldError(w, http.StatusBadRequest, "foreign key violation",
-			pgErr.ConstraintName, "foreign_key_violation", pgErr.Detail)
+		writeFieldErrorWithDocURL(w, http.StatusBadRequest, "foreign key violation",
+			pgErr.ConstraintName, "foreign_key_violation", pgErr.Detail, constraintDoc)
 	case "23502": // not_null_violation
-		writeFieldError(w, http.StatusBadRequest, "missing required value",
-			pgErr.ColumnName, "not_null_violation", pgErr.Message)
+		writeFieldErrorWithDocURL(w, http.StatusBadRequest, "missing required value",
+			pgErr.ColumnName, "not_null_violation", pgErr.Message, constraintDoc)
 	case "23514": // check_violation
-		writeFieldError(w, http.StatusBadRequest, "check constraint violation",
-			pgErr.ConstraintName, "check_violation", pgErr.Detail)
+		writeFieldErrorWithDocURL(w, http.StatusBadRequest, "check constraint violation",
+			pgErr.ConstraintName, "check_violation", pgErr.Detail, constraintDoc)
 	case "22P02": // invalid_text_representation
-		writeError(w, http.StatusBadRequest, friendlyTypeError(pgErr.Message))
+		writeErrorWithDoc(w, http.StatusBadRequest, friendlyTypeError(pgErr.Message), constraintDoc)
 	default:
 		return false
 	}

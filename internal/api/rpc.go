@@ -34,7 +34,7 @@ func (h *Handler) handleRPC(w http.ResponseWriter, r *http.Request) {
 
 	query, queryArgs, err := buildRPCCall(fn, args)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+		writeErrorWithDoc(w, http.StatusBadRequest, err.Error(), docURL("/guide/database-rpc"))
 		return
 	}
 

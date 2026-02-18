@@ -48,15 +48,16 @@ const (
 
 // Service handles user registration, login, and JWT operations.
 type Service struct {
-	pool       *pgxpool.Pool
-	jwtSecret  []byte
-	tokenDur   time.Duration
-	refreshDur time.Duration
-	minPwLen   int // minimum password length (default 8)
-	logger     *slog.Logger
-	mailer     mailer.Mailer // nil = email features disabled
-	appName    string        // used in email templates
-	baseURL    string        // public base URL for action links
+	pool         *pgxpool.Pool
+	jwtSecret    []byte
+	tokenDur     time.Duration
+	refreshDur   time.Duration
+	minPwLen     int // minimum password length (default 8)
+	logger       *slog.Logger
+	mailer       mailer.Mailer // nil = email features disabled
+	appName      string        // used in email templates
+	baseURL      string        // public base URL for action links
+	magicLinkDur time.Duration // 0 = use default (10 min)
 }
 
 // User represents a registered user (without password hash).
@@ -611,10 +612,15 @@ func (s *Service) ConfirmPasswordReset(ctx context.Context, token, newPassword s
 	}
 
 	// Delete all reset tokens for this user.
-	_, _ = s.pool.Exec(ctx, `DELETE FROM _ayb_password_resets WHERE user_id = $1`, userID)
+	if _, err := s.pool.Exec(ctx, `DELETE FROM _ayb_password_resets WHERE user_id = $1`, userID); err != nil {
+		s.logger.Error("failed to delete reset tokens after password reset", "user_id", userID, "error", err)
+	}
 
 	// Invalidate all existing sessions (force re-login).
-	_, _ = s.pool.Exec(ctx, `DELETE FROM _ayb_sessions WHERE user_id = $1`, userID)
+	if _, err := s.pool.Exec(ctx, `DELETE FROM _ayb_sessions WHERE user_id = $1`, userID); err != nil {
+		s.logger.Error("failed to invalidate sessions after password reset", "user_id", userID, "error", err)
+		return fmt.Errorf("invalidating sessions: %w", err)
+	}
 
 	s.logger.Info("password reset completed", "user_id", userID)
 	return nil

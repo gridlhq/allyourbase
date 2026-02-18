@@ -16,6 +16,7 @@ func TestBatchEmptyOperations(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "operations array is empty")
+	testutil.Contains(t, resp.DocURL, "/guide/api-reference#batch-operations")
 }
 
 func TestBatchTooManyOperations(t *testing.T) {
@@ -31,6 +32,7 @@ func TestBatchTooManyOperations(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "too many operations")
+	testutil.Contains(t, resp.DocURL, "/guide/api-reference#batch-operations")
 }
 
 func TestBatchInvalidJSON(t *testing.T) {
@@ -48,6 +50,7 @@ func TestBatchUnknownMethod(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "unknown method")
+	testutil.Contains(t, resp.DocURL, "/guide/api-reference#batch-operations")
 }
 
 // --- Validation: create ---
@@ -236,10 +239,9 @@ func TestValidateBatchOp(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateBatchOp(tbl, tt.op)
 			if tt.wantErr == "" {
-				testutil.True(t, err == nil, "expected no error, got: %v", err)
+				testutil.NoError(t, err)
 			} else {
-				testutil.True(t, err != nil, "expected error containing %q", tt.wantErr)
-				testutil.Contains(t, err.Error(), tt.wantErr)
+				testutil.ErrorContains(t, err, tt.wantErr)
 			}
 		})
 	}
@@ -260,8 +262,5 @@ func TestBatchErrorIncludesIndex(t *testing.T) {
 	testutil.Contains(t, resp.Message, "operation[1]")
 }
 
-// --- maxBatchSize constant ---
-
-func TestMaxBatchSizeIs1000(t *testing.T) {
-	testutil.Equal(t, 1000, maxBatchSize)
-}
+// maxBatchSize enforcement is covered by TestBatchTooManyOperations
+// and TestBatchExactlyMaxBatchSizePassesSizeCheck.

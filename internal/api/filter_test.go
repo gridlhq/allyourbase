@@ -31,80 +31,80 @@ func TestTokenizeSimple(t *testing.T) {
 	tokens, err := tokenize("name='Alice'")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
-	testutil.Equal(t, tokens[0].kind, tokIdent)
-	testutil.Equal(t, tokens[0].value, "name")
-	testutil.Equal(t, tokens[1].kind, tokOp)
-	testutil.Equal(t, tokens[1].value, "=")
-	testutil.Equal(t, tokens[2].kind, tokString)
-	testutil.Equal(t, tokens[2].value, "Alice")
+	testutil.Equal(t, tokIdent, tokens[0].kind)
+	testutil.Equal(t, "name", tokens[0].value)
+	testutil.Equal(t, tokOp, tokens[1].kind)
+	testutil.Equal(t, "=", tokens[1].value)
+	testutil.Equal(t, tokString, tokens[2].kind)
+	testutil.Equal(t, "Alice", tokens[2].value)
 }
 
 func TestTokenizeWithSpaces(t *testing.T) {
 	tokens, err := tokenize("age > 25")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
-	testutil.Equal(t, tokens[0].value, "age")
-	testutil.Equal(t, tokens[1].value, ">")
-	testutil.Equal(t, tokens[2].value, "25")
-	testutil.Equal(t, tokens[2].kind, tokNumber)
+	testutil.Equal(t, "age", tokens[0].value)
+	testutil.Equal(t, ">", tokens[1].value)
+	testutil.Equal(t, "25", tokens[2].value)
+	testutil.Equal(t, tokNumber, tokens[2].kind)
 }
 
 func TestTokenizeAnd(t *testing.T) {
 	tokens, err := tokenize("a=1 && b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
-	testutil.Equal(t, tokens[3].kind, tokAnd)
+	testutil.Equal(t, tokAnd, tokens[3].kind)
 }
 
 func TestTokenizeOr(t *testing.T) {
 	tokens, err := tokenize("a=1 || b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
-	testutil.Equal(t, tokens[3].kind, tokOr)
+	testutil.Equal(t, tokOr, tokens[3].kind)
 }
 
 func TestTokenizeAndKeyword(t *testing.T) {
 	tokens, err := tokenize("a=1 AND b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
-	testutil.Equal(t, tokens[3].kind, tokAnd)
+	testutil.Equal(t, tokAnd, tokens[3].kind)
 }
 
 func TestTokenizeOrKeyword(t *testing.T) {
 	tokens, err := tokenize("a=1 OR b=2")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 7)
-	testutil.Equal(t, tokens[3].kind, tokOr)
+	testutil.Equal(t, tokOr, tokens[3].kind)
 }
 
 func TestTokenizeParens(t *testing.T) {
 	tokens, err := tokenize("(a=1)")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 5)
-	testutil.Equal(t, tokens[0].kind, tokLParen)
-	testutil.Equal(t, tokens[4].kind, tokRParen)
+	testutil.Equal(t, tokLParen, tokens[0].kind)
+	testutil.Equal(t, tokRParen, tokens[4].kind)
 }
 
 func TestTokenizeBool(t *testing.T) {
 	tokens, err := tokenize("active=true")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
-	testutil.Equal(t, tokens[2].kind, tokBool)
-	testutil.Equal(t, tokens[2].value, "true")
+	testutil.Equal(t, tokBool, tokens[2].kind)
+	testutil.Equal(t, "true", tokens[2].value)
 }
 
 func TestTokenizeNull(t *testing.T) {
 	tokens, err := tokenize("name=null")
 	testutil.NoError(t, err)
 	testutil.SliceLen(t, tokens, 3)
-	testutil.Equal(t, tokens[2].kind, tokNull)
+	testutil.Equal(t, tokNull, tokens[2].kind)
 }
 
 func TestTokenizeIn(t *testing.T) {
 	tokens, err := tokenize("status IN ('a','b','c')")
 	testutil.NoError(t, err)
-	testutil.Equal(t, tokens[1].kind, tokIn)
-	testutil.Equal(t, tokens[2].kind, tokLParen)
+	testutil.Equal(t, tokIn, tokens[1].kind)
+	testutil.Equal(t, tokLParen, tokens[2].kind)
 }
 
 func TestTokenizeOperators(t *testing.T) {
@@ -125,16 +125,16 @@ func TestTokenizeOperators(t *testing.T) {
 	for _, tc := range tests {
 		tokens, err := tokenize(tc.input)
 		testutil.NoError(t, err)
-		testutil.Equal(t, tokens[1].kind, tokOp)
-		testutil.Equal(t, tokens[1].value, tc.op)
+		testutil.Equal(t, tokOp, tokens[1].kind)
+		testutil.Equal(t, tc.op, tokens[1].value)
 	}
 }
 
 func TestTokenizeFloat(t *testing.T) {
 	tokens, err := tokenize("age>3.14")
 	testutil.NoError(t, err)
-	testutil.Equal(t, tokens[2].value, "3.14")
-	testutil.Equal(t, tokens[2].kind, tokNumber)
+	testutil.Equal(t, "3.14", tokens[2].value)
+	testutil.Equal(t, tokNumber, tokens[2].kind)
 }
 
 func TestTokenizeEscapedQuote(t *testing.T) {
@@ -170,18 +170,18 @@ func TestParseFilterSimpleEquals(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice'")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"name" = $1`)
+	testutil.Equal(t, `"name" = $1`, sql)
 	testutil.SliceLen(t, args, 1)
-	testutil.Equal(t, args[0].(string), "Alice")
+	testutil.Equal(t, "Alice", args[0].(string))
 }
 
 func TestParseFilterNumber(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "age>25")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"age" > $1`)
+	testutil.Equal(t, `"age" > $1`, sql)
 	testutil.SliceLen(t, args, 1)
-	testutil.Equal(t, args[0].(int64), int64(25))
+	testutil.Equal(t, int64(25), args[0].(int64))
 }
 
 func TestParseFilterFloat(t *testing.T) {
@@ -189,22 +189,22 @@ func TestParseFilterFloat(t *testing.T) {
 	sql, args, err := parseFilter(tbl, "age>3.14")
 	testutil.NoError(t, err)
 	testutil.Contains(t, sql, `"age" > $1`)
-	testutil.Equal(t, args[0].(float64), 3.14)
+	testutil.Equal(t, 3.14, args[0].(float64))
 }
 
 func TestParseFilterBool(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "active=true")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"active" = $1`)
-	testutil.Equal(t, args[0].(bool), true)
+	testutil.Equal(t, `"active" = $1`, sql)
+	testutil.Equal(t, true, args[0].(bool))
 }
 
 func TestParseFilterNull(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name=null")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"name" IS NULL`)
+	testutil.Equal(t, `"name" IS NULL`, sql)
 	testutil.SliceLen(t, args, 0)
 }
 
@@ -212,7 +212,7 @@ func TestParseFilterNotNull(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name!=null")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"name" IS NOT NULL`)
+	testutil.Equal(t, `"name" IS NOT NULL`, sql)
 	testutil.SliceLen(t, args, 0)
 }
 
@@ -220,7 +220,7 @@ func TestParseFilterAnd(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' && age>25")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `("name" = $1 AND "age" > $2)`)
+	testutil.Equal(t, `("name" = $1 AND "age" > $2)`, sql)
 	testutil.SliceLen(t, args, 2)
 }
 
@@ -228,7 +228,7 @@ func TestParseFilterOr(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' || name='Bob'")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `("name" = $1 OR "name" = $2)`)
+	testutil.Equal(t, `("name" = $1 OR "name" = $2)`, sql)
 	testutil.SliceLen(t, args, 2)
 }
 
@@ -236,7 +236,7 @@ func TestParseFilterAndKeyword(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' AND age>25")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `("name" = $1 AND "age" > $2)`)
+	testutil.Equal(t, `("name" = $1 AND "age" > $2)`, sql)
 	testutil.SliceLen(t, args, 2)
 }
 
@@ -244,7 +244,7 @@ func TestParseFilterOrKeyword(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='Alice' OR name='Bob'")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `("name" = $1 OR "name" = $2)`)
+	testutil.Equal(t, `("name" = $1 OR "name" = $2)`, sql)
 	testutil.SliceLen(t, args, 2)
 }
 
@@ -252,7 +252,7 @@ func TestParseFilterParens(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "(name='Alice' || name='Bob') && age>25")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `(("name" = $1 OR "name" = $2) AND "age" > $3)`)
+	testutil.Equal(t, `(("name" = $1 OR "name" = $2) AND "age" > $3)`, sql)
 	testutil.SliceLen(t, args, 3)
 }
 
@@ -260,33 +260,33 @@ func TestParseFilterLike(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name~'%Ali%'")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"name" LIKE $1`)
-	testutil.Equal(t, args[0].(string), "%Ali%")
+	testutil.Equal(t, `"name" LIKE $1`, sql)
+	testutil.Equal(t, "%Ali%", args[0].(string))
 }
 
 func TestParseFilterNotLike(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name!~'%Ali%'")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"name" NOT LIKE $1`)
-	testutil.Equal(t, args[0].(string), "%Ali%")
+	testutil.Equal(t, `"name" NOT LIKE $1`, sql)
+	testutil.Equal(t, "%Ali%", args[0].(string))
 }
 
 func TestParseFilterIn(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "status IN ('active','inactive')")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `"status" IN ($1, $2)`)
+	testutil.Equal(t, `"status" IN ($1, $2)`, sql)
 	testutil.SliceLen(t, args, 2)
-	testutil.Equal(t, args[0].(string), "active")
-	testutil.Equal(t, args[1].(string), "inactive")
+	testutil.Equal(t, "active", args[0].(string))
+	testutil.Equal(t, "inactive", args[1].(string))
 }
 
 func TestParseFilterComplex(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "status='active' && (age>=18 || name='admin')")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `("status" = $1 AND ("age" >= $2 OR "name" = $3))`)
+	testutil.Equal(t, `("status" = $1 AND ("age" >= $2 OR "name" = $3))`, sql)
 	testutil.SliceLen(t, args, 3)
 }
 
@@ -310,7 +310,7 @@ func TestParseFilterEmpty(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, "")
+	testutil.Equal(t, "", sql)
 	testutil.True(t, args == nil, "expected nil args")
 }
 
@@ -332,7 +332,7 @@ func TestParseFilterMultipleAnd(t *testing.T) {
 	tbl := filterTestTable()
 	sql, args, err := parseFilter(tbl, "name='A' && age>1 && active=true")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `(("name" = $1 AND "age" > $2) AND "active" = $3)`)
+	testutil.Equal(t, `(("name" = $1 AND "age" > $2) AND "active" = $3)`, sql)
 	testutil.SliceLen(t, args, 3)
 }
 
@@ -343,7 +343,7 @@ func TestParseFilterOperatorPrecedence(t *testing.T) {
 	// So: a=1 || b=2 && c=3 → (a=1) OR ((b=2) AND (c=3))
 	sql, args, err := parseFilter(tbl, "name='a' || age>2 && active=true")
 	testutil.NoError(t, err)
-	testutil.Equal(t, sql, `("name" = $1 OR ("age" > $2 AND "active" = $3))`)
+	testutil.Equal(t, `("name" = $1 OR ("age" > $2 AND "active" = $3))`, sql)
 	testutil.SliceLen(t, args, 3)
 }
 
@@ -351,32 +351,32 @@ func TestParseFilterOperatorPrecedence(t *testing.T) {
 
 func TestParseSortSQLEmpty(t *testing.T) {
 	tbl := filterTestTable()
-	testutil.Equal(t, parseSortSQL(tbl, ""), "")
+	testutil.Equal(t, "", parseSortSQL(tbl, ""))
 }
 
 func TestParseSortSQLSingleAsc(t *testing.T) {
 	tbl := filterTestTable()
-	testutil.Equal(t, parseSortSQL(tbl, "name"), `"name" ASC`)
+	testutil.Equal(t, `"name" ASC`, parseSortSQL(tbl, "name"))
 }
 
 func TestParseSortSQLSingleDesc(t *testing.T) {
 	tbl := filterTestTable()
-	testutil.Equal(t, parseSortSQL(tbl, "-name"), `"name" DESC`)
+	testutil.Equal(t, `"name" DESC`, parseSortSQL(tbl, "-name"))
 }
 
 func TestParseSortSQLExplicitAsc(t *testing.T) {
 	tbl := filterTestTable()
-	testutil.Equal(t, parseSortSQL(tbl, "+name"), `"name" ASC`)
+	testutil.Equal(t, `"name" ASC`, parseSortSQL(tbl, "+name"))
 }
 
 func TestParseSortSQLMultiple(t *testing.T) {
 	tbl := filterTestTable()
-	testutil.Equal(t, parseSortSQL(tbl, "-age,+name"), `"age" DESC, "name" ASC`)
+	testutil.Equal(t, `"age" DESC, "name" ASC`, parseSortSQL(tbl, "-age,+name"))
 }
 
 func TestParseSortSQLIgnoresInvalidColumns(t *testing.T) {
 	tbl := filterTestTable()
-	testutil.Equal(t, parseSortSQL(tbl, "-nonexistent,name"), `"name" ASC`)
+	testutil.Equal(t, `"name" ASC`, parseSortSQL(tbl, "-nonexistent,name"))
 }
 
 // --- Filter depth limit ---

@@ -149,7 +149,13 @@ export class AYBClient {
     const res = await this._fetch(url, { ...init, headers });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ message: res.statusText }));
-      throw new AYBError(res.status, body.message || res.statusText);
+      throw new AYBError(
+        res.status,
+        body.message || res.statusText,
+        undefined,
+        body.data,
+        body.doc_url,
+      );
     }
     // Handle 204 No Content.
     if (res.status === 204) return undefined as T;
@@ -160,6 +166,40 @@ export class AYBClient {
   setTokensInternal(token: string, refreshToken: string): void {
     this._token = token;
     this._refreshToken = refreshToken;
+  }
+
+  /**
+   * Call a PostgreSQL function via the RPC endpoint.
+   *
+   * Void functions return `undefined`. Set-returning functions return an array.
+   * Scalar functions return the unwrapped value.
+   *
+   * @example
+   * ```ts
+   * // Scalar function
+   * const total = await ayb.rpc<number>("get_total_orders", { user_id: "abc" });
+   *
+   * // Set-returning function
+   * const rows = await ayb.rpc<{ id: string; name: string }[]>("search_users", { query: "john" });
+   *
+   * // No-argument function
+   * const version = await ayb.rpc<string>("pg_version");
+   * ```
+   */
+  async rpc<T = unknown>(
+    functionName: string,
+    args?: Record<string, unknown>,
+  ): Promise<T> {
+    const hasArgs = args != null && Object.keys(args).length > 0;
+    return this.request<T>(`/api/rpc/${functionName}`, {
+      method: "POST",
+      ...(hasArgs
+        ? {
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(args),
+          }
+        : {}),
+    });
   }
 
   /** @internal */
@@ -494,6 +534,7 @@ class RecordsClient {
     if (params?.perPage != null) qs.set("perPage", String(params.perPage));
     if (params?.sort) qs.set("sort", params.sort);
     if (params?.filter) qs.set("filter", params.filter);
+    if (params?.search) qs.set("search", params.search);
     if (params?.fields) qs.set("fields", params.fields);
     if (params?.expand) qs.set("expand", params.expand);
     if (params?.skipTotal) qs.set("skipTotal", "true");

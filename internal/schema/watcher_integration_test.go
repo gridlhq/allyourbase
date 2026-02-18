@@ -165,7 +165,7 @@ func TestWatcherAlterTableDetected(t *testing.T) {
 			break
 		}
 	}
-	testutil.Equal(t, initialCols, 2) // id + name
+	testutil.Equal(t, 2, initialCols) // id + name
 
 	// Add a column.
 	_, err = sharedPG.Pool.Exec(ctx, `ALTER TABLE alter_test ADD COLUMN email TEXT`)

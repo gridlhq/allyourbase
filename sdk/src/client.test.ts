@@ -390,6 +390,23 @@ describe("records params coverage", () => {
     expect(url).toContain("page=0");
   });
 
+  it("list includes search param", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { search: "postgres database" });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("search=postgres+database");
+  });
+
+  it("list combines search with filter", async () => {
+    const fetchFn = mockFetch(200, { items: [], page: 1, perPage: 20, totalItems: 0, totalPages: 0 });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.records.list("posts", { search: "postgres", filter: "status='active'" });
+    const url = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    expect(url).toContain("search=postgres");
+    expect(url).toContain("filter=status%3D%27active%27");
+  });
+
   it("delete returns undefined for 204", async () => {
     const fetchFn = mockFetch(204, undefined);
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
@@ -485,6 +502,42 @@ describe("error handling", () => {
     }
   });
 
+  it("AYBError includes data and docUrl from server response", async () => {
+    const fetchFn = mockFetch(409, {
+      message: "unique constraint violation",
+      data: {
+        users_email_key: { code: "unique_violation", message: "Key (email)=(a@b.com) already exists." },
+      },
+      doc_url: "https://allyourbase.io/guide/api-reference#error-format",
+    });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    expect.assertions(4);
+    try {
+      await client.records.create("users", { email: "a@b.com" });
+    } catch (e) {
+      expect(e).toBeInstanceOf(AYBError);
+      const err = e as AYBError;
+      expect(err.status).toBe(409);
+      expect(err.data).toEqual({
+        users_email_key: { code: "unique_violation", message: "Key (email)=(a@b.com) already exists." },
+      });
+      expect(err.docUrl).toBe("https://allyourbase.io/guide/api-reference#error-format");
+    }
+  });
+
+  it("AYBError data and docUrl are undefined when server omits them", async () => {
+    const fetchFn = mockFetch(404, { message: "record not found" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    expect.assertions(2);
+    try {
+      await client.records.get("posts", "999");
+    } catch (e) {
+      const err = e as AYBError;
+      expect(err.data).toBeUndefined();
+      expect(err.docUrl).toBeUndefined();
+    }
+  });
+
   it("AYBError falls back to statusText when json parse fails", async () => {
     const fetchFn = vi.fn().mockResolvedValue({
       ok: false,
@@ -495,6 +548,74 @@ describe("error handling", () => {
     }) as unknown as typeof globalThis.fetch;
     const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
     await expect(client.records.list("posts")).rejects.toThrow("Bad Gateway");
+  });
+});
+
+describe("rpc", () => {
+  it("calls POST /api/rpc/{function} with args", async () => {
+    const fetchFn = mockFetch(200, 42);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.rpc("get_total", { user_id: "abc" });
+    expect(result).toBe(42);
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe("http://localhost:8090/api/rpc/get_total");
+    expect(call[1].method).toBe("POST");
+    expect(call[1].headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(call[1].body as string)).toEqual({ user_id: "abc" });
+  });
+
+  it("calls without body when no args", async () => {
+    const fetchFn = mockFetch(200, "PostgreSQL 16.2");
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.rpc<string>("pg_version");
+    expect(result).toBe("PostgreSQL 16.2");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toBe("http://localhost:8090/api/rpc/pg_version");
+    expect(call[1].body).toBeUndefined();
+    expect(call[1].headers["Content-Type"]).toBeUndefined();
+  });
+
+  it("calls without body when args is empty object", async () => {
+    const fetchFn = mockFetch(200, "ok");
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await client.rpc("no_args_fn", {});
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].body).toBeUndefined();
+  });
+
+  it("returns undefined for void functions (204)", async () => {
+    const fetchFn = mockFetch(204, undefined);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.rpc("cleanup_old_data", { days: 30 });
+    expect(result).toBeUndefined();
+  });
+
+  it("returns array for set-returning functions", async () => {
+    const rows = [
+      { id: "1", name: "Alice" },
+      { id: "2", name: "Bob" },
+    ];
+    const fetchFn = mockFetch(200, rows);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    const result = await client.rpc<{ id: string; name: string }[]>("search_users", { query: "a" });
+    expect(result).toEqual(rows);
+    expect(result).toHaveLength(2);
+  });
+
+  it("sends auth header when authenticated", async () => {
+    const fetchFn = mockFetch(200, 1);
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    client.setTokens("my-jwt", "my-refresh");
+    await client.rpc("my_func");
+    const call = (fetchFn as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[1].headers["Authorization"]).toBe("Bearer my-jwt");
+  });
+
+  it("throws AYBError on function not found", async () => {
+    const fetchFn = mockFetch(404, { message: "function not found: nope" });
+    const client = new AYBClient("http://localhost:8090", { fetch: fetchFn });
+    await expect(client.rpc("nope")).rejects.toThrow(AYBError);
+    await expect(client.rpc("nope")).rejects.toThrow("function not found: nope");
   });
 });
 

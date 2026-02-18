@@ -69,6 +69,21 @@ func (h *CacheHolder) Reload(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
+	return h.reloadLocked(ctx)
+}
+
+// ReloadWait re-introspects the database and atomically swaps the cache.
+// Unlike Reload, it waits for any in-progress reload to finish before
+// performing its own. Use this when the caller needs to guarantee the
+// cache reflects changes just committed (e.g., after DDL in the admin SQL editor).
+func (h *CacheHolder) ReloadWait(ctx context.Context) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	return h.reloadLocked(ctx)
+}
+
+func (h *CacheHolder) reloadLocked(ctx context.Context) error {
 	sc, err := BuildCache(ctx, h.pool)
 	if err != nil {
 		return fmt.Errorf("building schema cache: %w", err)

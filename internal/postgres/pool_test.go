@@ -41,7 +41,7 @@ func TestNewPool(t *testing.T) {
 	var result int
 	err = pool.DB().QueryRow(ctx, "SELECT 1").Scan(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result, 1)
+	testutil.Equal(t, 1, result)
 }
 
 func TestNewPoolEmptyURL(t *testing.T) {
@@ -98,5 +98,5 @@ func TestPoolWithHealthCheck(t *testing.T) {
 	var result int
 	err = pool.DB().QueryRow(ctx, "SELECT 42").Scan(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result, 42)
+	testutil.Equal(t, 42, result)
 }

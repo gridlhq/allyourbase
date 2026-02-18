@@ -18,7 +18,7 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 			if !ok {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 					"missing or invalid authorization header",
-					"https://allyourbase.io/guide/auth")
+					"https://allyourbase.io/guide/authentication")
 				return
 			}
 
@@ -26,7 +26,7 @@ func RequireAuth(svc *Service) func(http.Handler) http.Handler {
 			if err != nil {
 				httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 					"invalid or expired token",
-					"https://allyourbase.io/guide/auth")
+					"https://allyourbase.io/guide/authentication")
 				return
 			}
 

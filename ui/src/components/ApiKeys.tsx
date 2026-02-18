@@ -279,6 +279,7 @@ export function ApiKeys() {
                             }
                             className="p-1 text-gray-400 hover:text-red-500 rounded hover:bg-gray-100"
                             title="Revoke key"
+                            aria-label="Revoke key"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -442,6 +443,7 @@ export function ApiKeys() {
                 onClick={() => handleCopy(modal.key)}
                 className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-200 shrink-0"
                 title="Copy to clipboard"
+                aria-label="Copy to clipboard"
               >
                 {copied ? (
                   <Check className="w-4 h-4 text-green-500" />

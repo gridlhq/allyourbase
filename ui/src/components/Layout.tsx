@@ -13,7 +13,6 @@ import { RlsPolicies } from "./RlsPolicies";
 import { CommandPalette, CommandPaletteHint } from "./CommandPalette";
 import type { CommandAction } from "./CommandPalette";
 import {
-  Database,
   Table as TableIcon,
   Columns3,
   Code,
@@ -93,8 +92,8 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
 
       <aside className="w-60 border-r bg-white flex flex-col">
         <div className="px-4 py-3 border-b flex items-center gap-2">
-          <Database className="w-4 h-4 text-gray-500" />
-          <span className="font-semibold text-sm">AYB Admin</span>
+          <span className="text-base">👾</span>
+          <span className="font-semibold text-sm">Allyourbase</span>
         </div>
 
         <CommandPaletteHint onClick={() => setCmdOpen(true)} />
@@ -109,6 +108,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
               onClick={() => handleAdminView("sql-editor")}
               className="text-[10px] text-gray-400 hover:text-gray-600 flex items-center gap-0.5"
               title="New Table (opens SQL Editor)"
+              aria-label="New Table"
             >
               <Plus className="w-3 h-3" />
               New Table
@@ -264,6 +264,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
             onClick={onRefresh}
             className="p-2 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
             title="Refresh schema"
+            aria-label="Refresh schema"
           >
             <RefreshCw className="w-4 h-4" />
           </button>
@@ -271,6 +272,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
             onClick={onLogout}
             className="p-2 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
             title="Log out"
+            aria-label="Log out"
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -294,7 +296,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
             ) : view === "rls" ? (
               <RlsPolicies schema={schema} />
             ) : view === "sql-editor" ? (
-              <SqlEditor />
+              <SqlEditor onSchemaChange={onRefresh} />
             ) : (
               <Users />
             )}
@@ -358,7 +360,7 @@ export function Layout({ schema, onLogout, onRefresh }: LayoutProps) {
               ) : view === "schema" ? (
                 <SchemaView table={selected} />
               ) : (
-                <SqlEditor />
+                <SqlEditor onSchemaChange={onRefresh} />
               )}
             </div>
           </>

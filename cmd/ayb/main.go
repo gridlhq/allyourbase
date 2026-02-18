@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/allyourbase/ayb/internal/cli"
+	"github.com/allyourbase/ayb/internal/cli/ui"
 )
 
 // Set by goreleaser at build time.
@@ -17,7 +18,7 @@ var (
 func main() {
 	cli.SetVersion(version, commit, date)
 	if err := cli.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+		fmt.Fprint(os.Stderr, ui.FormatError(err.Error()))
 		os.Exit(1)
 	}
 }

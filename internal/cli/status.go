@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/allyourbase/ayb/internal/cli/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -25,15 +26,16 @@ func init() {
 func runStatus(cmd *cobra.Command, args []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	portFlag, _ := cmd.Flags().GetInt("port")
+	out := cmd.OutOrStdout()
 
 	pid, port, err := readAYBPID()
 	if err != nil {
 		if os.IsNotExist(err) {
 			if jsonOut {
-				json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "stopped"})
+				json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 				return nil
 			}
-			fmt.Println("AYB server is not running.")
+			fmt.Fprintln(out, "AYB server is not running.")
 			return nil
 		}
 		return fmt.Errorf("reading PID file: %w", err)
@@ -44,19 +46,19 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		cleanupPIDFile()
 		if jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "stopped"})
+			json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 			return nil
 		}
-		fmt.Println("AYB server is not running (stale PID file cleaned up).")
+		fmt.Fprintln(out, "AYB server is not running (stale PID file cleaned up).")
 		return nil
 	}
 	if err := proc.Signal(syscall.Signal(0)); err != nil {
 		cleanupPIDFile()
 		if jsonOut {
-			json.NewEncoder(os.Stdout).Encode(map[string]any{"status": "stopped"})
+			json.NewEncoder(out).Encode(map[string]any{"status": "stopped"})
 			return nil
 		}
-		fmt.Println("AYB server is not running (stale PID file cleaned up).")
+		fmt.Fprintln(out, "AYB server is not running (stale PID file cleaned up).")
 		return nil
 	}
 
@@ -79,7 +81,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if jsonOut {
-		json.NewEncoder(os.Stdout).Encode(map[string]any{
+		json.NewEncoder(out).Encode(map[string]any{
 			"status":  "running",
 			"pid":     pid,
 			"port":    port,
@@ -88,13 +90,22 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	fmt.Printf("AYB server is running.\n")
-	fmt.Printf("  PID:     %d\n", pid)
-	fmt.Printf("  Port:    %d\n", port)
+	useColor := colorEnabledFd(os.Stdout.Fd())
+	fmt.Fprintf(out, "%s AYB server is running.\n", ui.BrandEmoji)
+	fmt.Fprintf(out, "  PID:     %d\n", pid)
+	fmt.Fprintf(out, "  Port:    %d\n", port)
 	if healthy {
-		fmt.Printf("  Health:  ok\n")
+		if useColor {
+			fmt.Fprintf(out, "  Health:  %s %s\n", ui.StyleSuccess.Render(ui.SymbolDot), "healthy")
+		} else {
+			fmt.Fprintf(out, "  Health:  %s healthy\n", ui.SymbolCheck)
+		}
 	} else {
-		fmt.Printf("  Health:  unreachable\n")
+		if useColor {
+			fmt.Fprintf(out, "  Health:  %s %s\n", ui.StyleError.Render(ui.SymbolDot), "unreachable")
+		} else {
+			fmt.Fprintf(out, "  Health:  %s unreachable\n", ui.SymbolCross)
+		}
 	}
 	return nil
 }

@@ -11,24 +11,24 @@ func TestValidateBucket(t *testing.T) {
 	tests := []struct {
 		name    string
 		bucket  string
-		wantErr bool
+		wantErr string
 	}{
-		{"valid simple", "images", false},
-		{"valid with hyphens", "my-bucket", false},
-		{"valid with underscores", "my_bucket", false},
-		{"valid with digits", "bucket123", false},
-		{"empty", "", true},
-		{"too long", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", true}, // 66 chars > 63 max
-		{"uppercase", "Images", true},
-		{"spaces", "my bucket", true},
-		{"dots", "my.bucket", true},
-		{"slashes", "my/bucket", true},
+		{"valid simple", "images", ""},
+		{"valid with hyphens", "my-bucket", ""},
+		{"valid with underscores", "my_bucket", ""},
+		{"valid with digits", "bucket123", ""},
+		{"empty", "", "bucket name is required"},
+		{"too long", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "too long"}, // 66 chars > 63 max
+		{"uppercase", "Images", "lowercase letters"},
+		{"spaces", "my bucket", "lowercase letters"},
+		{"dots", "my.bucket", "lowercase letters"},
+		{"slashes", "my/bucket", "lowercase letters"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateBucket(tt.bucket)
-			if tt.wantErr {
-				testutil.True(t, err != nil, "expected error for %q", tt.bucket)
+			if tt.wantErr != "" {
+				testutil.ErrorContains(t, err, tt.wantErr)
 			} else {
 				testutil.NoError(t, err)
 			}
@@ -40,20 +40,20 @@ func TestValidateName(t *testing.T) {
 	tests := []struct {
 		name    string
 		objName string
-		wantErr bool
+		wantErr string
 	}{
-		{"valid simple", "photo.jpg", false},
-		{"valid nested", "a/b/c/file.txt", false},
-		{"empty", "", true},
-		{"dot dot", "a/../b", true},
-		{"leading slash", "/a/b", true},
-		{"too long", string(make([]byte, 1025)), true},
+		{"valid simple", "photo.jpg", ""},
+		{"valid nested", "a/b/c/file.txt", ""},
+		{"empty", "", "object name is required"},
+		{"dot dot", "a/../b", "must not contain"},
+		{"leading slash", "/a/b", "must not start with"},
+		{"too long", string(make([]byte, 1025)), "too long"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validateName(tt.objName)
-			if tt.wantErr {
-				testutil.True(t, err != nil, "expected error for %q", tt.objName)
+			if tt.wantErr != "" {
+				testutil.ErrorContains(t, err, tt.wantErr)
 			} else {
 				testutil.NoError(t, err)
 			}

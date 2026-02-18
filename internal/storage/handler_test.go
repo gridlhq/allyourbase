@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 	"time"
 
@@ -83,7 +84,9 @@ func TestHandleUploadMissingFile(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	testutil.Equal(t, http.StatusBadRequest, rec.Code)
-	testutil.Contains(t, rec.Body.String(), "file")
+	var errResp map[string]any
+	testutil.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+	testutil.Contains(t, errResp["message"].(string), `missing "file" field`)
 }
 
 func TestHandleUploadInvalidBucket(t *testing.T) {
@@ -101,6 +104,7 @@ func TestHandleUploadInvalidBucket(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	testutil.Equal(t, http.StatusBadRequest, rec.Code)
+	testutil.Contains(t, rec.Body.String(), "invalid bucket name")
 }
 
 func TestHandleSignedURLInvalid(t *testing.T) {
@@ -114,8 +118,10 @@ func TestHandleSignedURLInvalid(t *testing.T) {
 	testutil.Equal(t, http.StatusForbidden, rec.Code)
 
 	var resp map[string]any
-	json.Unmarshal(rec.Body.Bytes(), &resp)
-	testutil.Contains(t, resp["message"].(string), "invalid")
+	testutil.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	msg, ok := resp["message"].(string)
+	testutil.True(t, ok, "response should contain a 'message' string field")
+	testutil.Contains(t, msg, "invalid or expired signed URL")
 }
 
 func TestHandleSignedURLExpired(t *testing.T) {
@@ -129,6 +135,7 @@ func TestHandleSignedURLExpired(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	testutil.Equal(t, http.StatusForbidden, rec.Code)
+	testutil.Contains(t, rec.Body.String(), "invalid or expired signed URL")
 }
 
 func TestHandleUploadNoContentType(t *testing.T) {
@@ -140,6 +147,7 @@ func TestHandleUploadNoContentType(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 	testutil.Equal(t, http.StatusBadRequest, rec.Code)
+	testutil.Contains(t, rec.Body.String(), "invalid multipart form")
 }
 
 // Note: Tests that exercise full upload/serve/delete/list flows (which require
@@ -424,5 +432,5 @@ func TestServeTransformedCacheHeader(t *testing.T) {
 
 	testutil.Equal(t, http.StatusOK, rec.Code)
 	testutil.Equal(t, "public, max-age=86400", rec.Header().Get("Cache-Control"))
-	testutil.True(t, rec.Header().Get("Content-Length") != "", "should set Content-Length")
+	testutil.Equal(t, strconv.Itoa(rec.Body.Len()), rec.Header().Get("Content-Length"))
 }

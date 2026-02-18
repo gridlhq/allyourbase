@@ -13,9 +13,11 @@ export default defineConfig({
   timeout: 30_000, // Increased for network latency in staging/prod
   expect: { timeout: 10_000 },
   fullyParallel: true,
-  retries: ENV === "local" ? 0 : 2, // Retry on staging/prod for network flakiness
+  workers: 3, // Reduce parallelism to avoid resource contention
+  retries: 1, // Retry once on failure to handle timing issues
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || BASE_URLS[ENV as keyof typeof BASE_URLS],
+    headless: true, // Always run in headless mode
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure",

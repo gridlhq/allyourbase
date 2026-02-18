@@ -65,7 +65,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		var err error
-		claims, err = h.authSvc.ValidateToken(token)
+		// Support both JWT tokens and API keys (ayb_ prefix).
+		if auth.IsAPIKey(token) {
+			claims, err = h.authSvc.ValidateAPIKey(r.Context(), token)
+		} else {
+			claims, err = h.authSvc.ValidateToken(token)
+		}
 		if err != nil {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized, "invalid or expired token",
 				"https://allyourbase.io/guide/realtime")
@@ -89,13 +94,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if sc != nil && sc.TableByName(name) == nil {
-			httputil.WriteError(w, http.StatusBadRequest, "unknown table: "+name)
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "unknown table: "+name,
+				"https://allyourbase.io/guide/realtime")
 			return
 		}
 		tables[name] = true
 	}
 	if len(tables) == 0 {
-		httputil.WriteError(w, http.StatusBadRequest, "at least one valid table is required")
+		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "at least one valid table is required",
+			"https://allyourbase.io/guide/realtime")
 		return
 	}
 

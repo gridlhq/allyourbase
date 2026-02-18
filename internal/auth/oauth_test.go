@@ -85,7 +85,7 @@ func TestParseGoogleUserMissingID(t *testing.T) {
 func TestParseGitHubUser(t *testing.T) {
 	// Set up a mock emails endpoint for the case where email is empty.
 	body := `{"id":42,"login":"octocat","email":"octocat@github.com","name":"The Octocat"}`
-	info, err := parseGitHubUser(nil, []byte(body), "unused-token")
+	info, err := parseGitHubUser(context.Background(), []byte(body), "unused-token")
 	testutil.NoError(t, err)
 	testutil.Equal(t, "42", info.ProviderUserID)
 	testutil.Equal(t, "octocat@github.com", info.Email)
@@ -94,14 +94,14 @@ func TestParseGitHubUser(t *testing.T) {
 
 func TestParseGitHubUserFallbackLoginAsName(t *testing.T) {
 	body := `{"id":42,"login":"octocat","email":"octocat@github.com","name":""}`
-	info, err := parseGitHubUser(nil, []byte(body), "unused-token")
+	info, err := parseGitHubUser(context.Background(), []byte(body), "unused-token")
 	testutil.NoError(t, err)
 	testutil.Equal(t, "octocat", info.Name)
 }
 
 func TestParseGitHubUserMissingID(t *testing.T) {
 	body := `{"login":"octocat"}`
-	_, err := parseGitHubUser(nil, []byte(body), "token")
+	_, err := parseGitHubUser(context.Background(), []byte(body), "token")
 	testutil.ErrorContains(t, err, "missing user ID")
 }
 

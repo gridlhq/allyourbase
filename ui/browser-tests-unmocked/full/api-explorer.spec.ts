@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
 
 /**
  * FULL E2E TEST: API Explorer
@@ -9,9 +9,6 @@ import { test, expect } from "@playwright/test";
  * - Verify response display (status, body)
  * - Check cURL code generation
  * - Check JS SDK code generation
- * - Send POST request (if table exists)
- *
- * UI-ONLY: No direct API calls
  */
 
 test.describe("API Explorer (Full E2E)", () => {
@@ -20,7 +17,7 @@ test.describe("API Explorer (Full E2E)", () => {
     // Navigate to API Explorer
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("AYB Admin").first()).toBeVisible();
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
 
     const sidebar = page.locator("aside");
     const explorerButton = sidebar.getByRole("button", { name: /^API Explorer$/i });
@@ -28,95 +25,71 @@ test.describe("API Explorer (Full E2E)", () => {
     await explorerButton.click();
 
     // Verify API Explorer loaded
-    await expect(page.getByText(/API Explorer/i).first()).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("heading", { name: /API Explorer/i })).toBeVisible({ timeout: 5000 });
 
     // ============================================================
     // SEND GET REQUEST: /api/schema
     // ============================================================
-    // Verify method selector defaults to GET (or select it)
-    const methodSelector = page.locator("select").first().or(
-      page.getByRole("button", { name: /GET/i })
-    );
-    if (await methodSelector.isVisible({ timeout: 2000 }).catch(() => false)) {
-      // If it's a select, choose GET
-      if (await page.locator("select").first().isVisible({ timeout: 1000 }).catch(() => false)) {
-        await page.locator("select").first().selectOption("GET");
-      }
-    }
+    // Select GET method via combobox
+    const methodSelector = page.getByRole("combobox").first();
+    await expect(methodSelector).toBeVisible({ timeout: 2000 });
+    await methodSelector.selectOption("GET");
 
     // Enter path
-    const pathInput = page.locator('input[type="text"]').or(
-      page.getByPlaceholder(/path|url|endpoint/i)
-    ).first();
+    const pathInput = page.getByLabel("Request path");
     await expect(pathInput).toBeVisible({ timeout: 3000 });
     await pathInput.clear();
     await pathInput.fill("/api/schema");
 
     // Click execute
-    const executeButton = page.getByRole("button", { name: /send|execute|run/i }).or(
-      page.locator("button").filter({ has: page.locator("svg.lucide-play") })
-    );
+    const executeButton = page.getByRole("button", { name: /send|execute|run/i });
     await expect(executeButton.first()).toBeVisible({ timeout: 2000 });
     await executeButton.first().click();
 
     // ============================================================
-    // VERIFY RESPONSE: Status 200 and body contains "tables"
+    // VERIFY RESPONSE (scoped to main to avoid matching sidebar text)
     // ============================================================
-    // Wait for response to appear
-    const statusCode = page.getByText("200").or(page.getByText(/2\d\d/));
+    const mainContent = page.locator("main");
+    const statusCode = mainContent.getByText("200").or(mainContent.getByText(/2\d\d/));
     await expect(statusCode.first()).toBeVisible({ timeout: 10000 });
 
-    // Response body should contain "tables" (schema endpoint)
-    const responseBody = page.getByText(/tables/i);
+    // The /api/schema response JSON contains "tables" — scope to main to avoid sidebar match
+    const responseBody = mainContent.getByText(/"tables"/i);
     await expect(responseBody.first()).toBeVisible({ timeout: 3000 });
 
     // ============================================================
     // CODE GENERATION: Verify cURL tab
     // ============================================================
-    const curlTab = page.getByRole("button", { name: /curl/i }).or(
-      page.getByText(/cURL/i)
-    );
-    if (await curlTab.first().isVisible({ timeout: 2000 }).catch(() => false)) {
-      await curlTab.first().click();
+    const curlTab = page.getByRole("button", { name: /curl/i }).or(page.getByText(/cURL/i));
+    await expect(curlTab.first()).toBeVisible({ timeout: 2000 });
+    await curlTab.first().click();
 
-      // Verify cURL command contains the path
-      const curlCode = page.getByText(/curl.*-X.*GET/i).or(
-        page.locator("pre, code").filter({ hasText: "curl" })
-      );
-      await expect(curlCode.first()).toBeVisible({ timeout: 3000 });
-    }
+    // Assert on generated code content, not the tab label (which was already visible)
+    await expect(page.getByText(/curl -X/i).first()).toBeVisible({ timeout: 3000 });
 
     // ============================================================
     // CODE GENERATION: Verify JS SDK tab
     // ============================================================
-    const jsTab = page.getByRole("button", { name: /javascript|js|sdk/i }).or(
-      page.getByText(/JavaScript|SDK/i)
-    );
-    if (await jsTab.first().isVisible({ timeout: 2000 }).catch(() => false)) {
-      await jsTab.first().click();
+    const jsTab = page.getByRole("button", { name: /javascript|js|sdk/i }).or(page.getByText(/JavaScript|SDK/i));
+    await expect(jsTab.first()).toBeVisible({ timeout: 2000 });
+    await jsTab.first().click();
 
-      // Verify SDK code is present
-      const sdkCode = page.getByText(/ayb\./i).or(
-        page.locator("pre, code").filter({ hasText: "ayb" })
-      );
-      await expect(sdkCode.first()).toBeVisible({ timeout: 3000 });
-    }
+    // /api/schema falls back to raw fetch code (SDK only covers /api/collections/* and /api/rpc/*)
+    const sdkCode = page.getByText(/fetch\(|ayb\./i);
+    await expect(sdkCode.first()).toBeVisible({ timeout: 3000 });
 
     // ============================================================
-    // SEND GET REQUEST: /api/collections (test a different endpoint)
+    // SEND another GET REQUEST
     // ============================================================
     await pathInput.clear();
     await pathInput.fill("/api/admin/status");
     await executeButton.first().click();
 
-    // Verify we get a response
-    const statusResponse = page.getByText("200").or(page.getByText(/2\d\d/));
+    const statusResponse = mainContent.getByText("200").or(mainContent.getByText(/2\d\d/));
     await expect(statusResponse.first()).toBeVisible({ timeout: 10000 });
 
-    // Response should contain "auth"
-    const authField = page.getByText(/auth/i);
+    // The /api/admin/status response contains "auth" — scope to main to avoid matching nav text
+    const authField = mainContent.getByText(/"auth"/i);
     await expect(authField.first()).toBeVisible({ timeout: 3000 });
-
-    console.log("✅ Full API explorer test passed");
   });
 });

@@ -119,9 +119,12 @@ func TestAdminTokenConsistency(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/api/admin/auth", strings.NewReader(`{"password":"pass"}`))
 		req.Header.Set("Content-Type", "application/json")
 		srv.Router().ServeHTTP(w, req)
+		testutil.Equal(t, http.StatusOK, w.Code)
 		var body map[string]string
-		json.Unmarshal(w.Body.Bytes(), &body)
-		return body["token"]
+		testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+		token := body["token"]
+		testutil.True(t, token != "", "expected non-empty token")
+		return token
 	}
 
 	t1 := login()

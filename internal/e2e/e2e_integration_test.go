@@ -234,7 +234,7 @@ func adminToken(t *testing.T, baseURL string) string {
 	t.Helper()
 	resp, body := httpJSON(t, "POST", baseURL+"/api/admin/auth",
 		map[string]string{"password": testAdminPass}, "")
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	token, ok := body["token"].(string)
 	testutil.True(t, ok, "admin token should be a string")
 	return token
@@ -244,7 +244,7 @@ func registerUser(t *testing.T, baseURL, email, password string) (string, string
 	t.Helper()
 	resp, body := httpJSON(t, "POST", baseURL+"/api/auth/register",
 		map[string]string{"email": email, "password": password}, "")
-	testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	return body["token"].(string), body["refreshToken"].(string)
 }
 
@@ -252,7 +252,7 @@ func loginUser(t *testing.T, baseURL, email, password string) (string, string) {
 	t.Helper()
 	resp, body := httpJSON(t, "POST", baseURL+"/api/auth/login",
 		map[string]string{"email": email, "password": password}, "")
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	return body["token"].(string), body["refreshToken"].(string)
 }
 
@@ -265,7 +265,7 @@ func TestE2E_HealthCheck(t *testing.T) {
 	defer ts.Close()
 
 	resp, body := httpJSON(t, "GET", ts.URL+"/health", nil, "")
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, "ok", body["status"].(string))
 }
 
@@ -278,7 +278,7 @@ func TestE2E_SchemaEndpoint(t *testing.T) {
 	defer ts.Close()
 
 	resp, body := httpJSON(t, "GET", ts.URL+"/api/schema", nil, "")
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 
 	// tables is a map[string]*Table keyed by "schema.table".
 	tables, ok := body["tables"].(map[string]any)
@@ -301,14 +301,14 @@ func TestE2E_AdminAuth(t *testing.T) {
 
 	t.Run("status shows auth required", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/admin/status", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, true, body["auth"].(bool))
 	})
 
 	t.Run("wrong password rejected", func(t *testing.T) {
 		resp, _ := httpJSON(t, "POST", ts.URL+"/api/admin/auth",
 			map[string]string{"password": "wrong"}, "")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("correct password returns token", func(t *testing.T) {
@@ -319,7 +319,7 @@ func TestE2E_AdminAuth(t *testing.T) {
 	t.Run("SQL requires admin token", func(t *testing.T) {
 		resp, _ := httpJSON(t, "POST", ts.URL+"/api/admin/sql/",
 			map[string]string{"query": "SELECT 1"}, "")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("SQL executes query", func(t *testing.T) {
@@ -327,7 +327,7 @@ func TestE2E_AdminAuth(t *testing.T) {
 		resp, body := httpJSON(t, "POST", ts.URL+"/api/admin/sql/",
 			map[string]string{"query": "SELECT name FROM authors ORDER BY id"},
 			token)
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		columns := body["columns"].([]any)
 		testutil.Equal(t, 1, len(columns))
 		testutil.Equal(t, "name", columns[0].(string))
@@ -340,7 +340,7 @@ func TestE2E_AdminAuth(t *testing.T) {
 		token := adminToken(t, ts.URL)
 		resp, body := httpJSON(t, "POST", ts.URL+"/api/admin/sql/",
 			map[string]string{"query": "SELECT * FROM nonexistent_table"}, token)
-		testutil.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusBadRequest, resp.StatusCode)
 		testutil.True(t, len(body["message"].(string)) > 0, "should have error message")
 	})
 }
@@ -355,7 +355,7 @@ func TestE2E_CRUDLifecycle(t *testing.T) {
 
 	t.Run("list authors", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/collections/authors", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		items := body["items"].([]any)
 		testutil.Equal(t, 3, len(items))
 		testutil.Equal(t, float64(3), body["totalItems"].(float64))
@@ -364,21 +364,21 @@ func TestE2E_CRUDLifecycle(t *testing.T) {
 	t.Run("create author", func(t *testing.T) {
 		resp, body := httpJSON(t, "POST", ts.URL+"/api/collections/authors",
 			map[string]any{"name": "Diana", "bio": "New author"}, "")
-		testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 		testutil.Equal(t, "Diana", body["name"].(string))
 		testutil.NotNil(t, body["id"])
 	})
 
 	t.Run("get single author", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/collections/authors/1", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "Alice", body["name"].(string))
 	})
 
 	t.Run("update author", func(t *testing.T) {
 		resp, body := httpJSON(t, "PATCH", ts.URL+"/api/collections/authors/1",
 			map[string]any{"bio": "Updated bio"}, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "Updated bio", body["bio"].(string))
 		testutil.Equal(t, "Alice", body["name"].(string))
 	})
@@ -389,21 +389,21 @@ func TestE2E_CRUDLifecycle(t *testing.T) {
 		id := fmt.Sprintf("%.0f", createBody["id"].(float64))
 
 		resp, _ := httpJSON(t, "DELETE", ts.URL+"/api/collections/authors/"+id, nil, "")
-		testutil.Equal(t, http.StatusNoContent, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNoContent, resp.StatusCode)
 
 		resp2, _ := httpJSON(t, "GET", ts.URL+"/api/collections/authors/"+id, nil, "")
-		testutil.Equal(t, http.StatusNotFound, resp2.StatusCode)
+		testutil.StatusCode(t, http.StatusNotFound, resp2.StatusCode)
 	})
 
 	t.Run("404 nonexistent record", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/collections/authors/99999", nil, "")
-		testutil.Equal(t, http.StatusNotFound, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNotFound, resp.StatusCode)
 		testutil.Equal(t, float64(404), body["code"].(float64))
 	})
 
 	t.Run("404 nonexistent table", func(t *testing.T) {
 		resp, _ := httpJSON(t, "GET", ts.URL+"/api/collections/nonexistent", nil, "")
-		testutil.Equal(t, http.StatusNotFound, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("NOT NULL violation", func(t *testing.T) {
@@ -418,7 +418,7 @@ func TestE2E_CRUDLifecycle(t *testing.T) {
 	t.Run("UNIQUE violation 409", func(t *testing.T) {
 		resp, body := httpJSON(t, "POST", ts.URL+"/api/collections/tags",
 			map[string]any{"name": "go"}, "")
-		testutil.Equal(t, http.StatusConflict, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusConflict, resp.StatusCode)
 		testutil.Equal(t, float64(409), body["code"].(float64))
 	})
 }
@@ -434,7 +434,7 @@ func TestE2E_QueryFeatures(t *testing.T) {
 	t.Run("filter", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/posts?filter=published%3Dtrue", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		items := body["items"].([]any)
 		testutil.Equal(t, 4, len(items)) // Hello World, Go Tips, Rust vs Go, Solo Post
 	})
@@ -442,7 +442,7 @@ func TestE2E_QueryFeatures(t *testing.T) {
 	t.Run("sort ascending", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/authors?sort=%2Bname", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		items := body["items"].([]any)
 		testutil.Equal(t, "Alice", items[0].(map[string]any)["name"].(string))
 		testutil.Equal(t, "Charlie", items[2].(map[string]any)["name"].(string))
@@ -451,28 +451,28 @@ func TestE2E_QueryFeatures(t *testing.T) {
 	t.Run("sort descending", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/authors?sort=-name", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "Charlie", body["items"].([]any)[0].(map[string]any)["name"].(string))
 	})
 
 	t.Run("pagination", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/posts?perPage=2&page=1&sort=%2Bid", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, 2, len(body["items"].([]any)))
 		testutil.Equal(t, float64(5), body["totalItems"].(float64))
 		testutil.Equal(t, float64(3), body["totalPages"].(float64))
 
 		resp2, body2 := httpJSON(t, "GET",
 			ts.URL+"/api/collections/posts?perPage=2&page=3&sort=%2Bid", nil, "")
-		testutil.Equal(t, http.StatusOK, resp2.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp2.StatusCode)
 		testutil.Equal(t, 1, len(body2["items"].([]any)))
 	})
 
 	t.Run("fields projection", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/authors?fields=id,name", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		first := body["items"].([]any)[0].(map[string]any)
 		testutil.NotNil(t, first["id"])
 		testutil.NotNil(t, first["name"])
@@ -483,7 +483,7 @@ func TestE2E_QueryFeatures(t *testing.T) {
 	t.Run("expand FK", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/posts/1?expand=author_id", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		expand := body["expand"].(map[string]any)
 		// Expand key uses friendly name (strips _id suffix).
 		author := expand["author"].(map[string]any)
@@ -493,14 +493,14 @@ func TestE2E_QueryFeatures(t *testing.T) {
 	t.Run("skipTotal", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/posts?skipTotal=true", nil, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, float64(-1), body["totalItems"].(float64))
 	})
 
 	t.Run("invalid filter 400", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET",
 			ts.URL+"/api/collections/posts?filter="+url.QueryEscape("((broken"), nil, "")
-		testutil.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusBadRequest, resp.StatusCode)
 		code, ok := body["code"].(float64)
 		testutil.True(t, ok, "response should have numeric code field")
 		testutil.Equal(t, float64(400), code)
@@ -528,7 +528,7 @@ func TestE2E_BatchOperations(t *testing.T) {
 			},
 		}
 		resp, results := httpJSONArray(t, "POST", ts.URL+"/api/collections/tags/batch", ops, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, 3, len(results))
 
 		testutil.Equal(t, float64(201), results[0].(map[string]any)["status"].(float64))
@@ -579,7 +579,7 @@ func TestE2E_RPC(t *testing.T) {
 		defer ts.Close()
 
 		resp, _ := httpRaw(t, "POST", ts.URL+"/api/rpc/do_nothing", map[string]any{}, "")
-		testutil.Equal(t, http.StatusNoContent, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNoContent, resp.StatusCode)
 	})
 
 	t.Run("scalar function returns value", func(t *testing.T) {
@@ -602,7 +602,7 @@ func TestE2E_RPC(t *testing.T) {
 
 		resp, raw := httpRaw(t, "POST", ts.URL+"/api/rpc/add_numbers",
 			map[string]any{"a": 3, "b": 7}, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "10", strings.TrimSpace(string(raw)))
 	})
 
@@ -628,7 +628,7 @@ func TestE2E_RPC(t *testing.T) {
 
 		resp, results := httpJSONArray(t, "POST", ts.URL+"/api/rpc/get_author_names",
 			map[string]any{}, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, 3, len(results))
 		testutil.Equal(t, "Alice", results[0].(map[string]any)["name"].(string))
 	})
@@ -651,25 +651,25 @@ func TestE2E_AuthLifecycle(t *testing.T) {
 	t.Run("duplicate registration 409", func(t *testing.T) {
 		resp, body := httpJSON(t, "POST", ts.URL+"/api/auth/register",
 			map[string]string{"email": "test@example.com", "password": "securepass123"}, "")
-		testutil.Equal(t, http.StatusConflict, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusConflict, resp.StatusCode)
 		testutil.Equal(t, float64(409), body["code"].(float64))
 	})
 
 	t.Run("get me", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/auth/me", nil, token)
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "test@example.com", body["email"].(string))
 		testutil.NotNil(t, body["id"])
 	})
 
 	t.Run("me without token 401", func(t *testing.T) {
 		resp, _ := httpJSON(t, "GET", ts.URL+"/api/auth/me", nil, "")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("me with bad token 401", func(t *testing.T) {
 		resp, _ := httpJSON(t, "GET", ts.URL+"/api/auth/me", nil, "invalid.token")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("login", func(t *testing.T) {
@@ -682,13 +682,13 @@ func TestE2E_AuthLifecycle(t *testing.T) {
 	t.Run("login wrong password", func(t *testing.T) {
 		resp, _ := httpJSON(t, "POST", ts.URL+"/api/auth/login",
 			map[string]string{"email": "test@example.com", "password": "wrong"}, "")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 
 	t.Run("refresh token", func(t *testing.T) {
 		resp, body := httpJSON(t, "POST", ts.URL+"/api/auth/refresh",
 			map[string]string{"refreshToken": refreshToken}, "")
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		token = body["token"].(string)
 		refreshToken = body["refreshToken"].(string)
 		testutil.True(t, len(token) > 0, "new token")
@@ -697,7 +697,7 @@ func TestE2E_AuthLifecycle(t *testing.T) {
 	t.Run("logout", func(t *testing.T) {
 		resp, _ := httpJSON(t, "POST", ts.URL+"/api/auth/logout",
 			map[string]string{"refreshToken": refreshToken}, "")
-		testutil.Equal(t, http.StatusNoContent, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNoContent, resp.StatusCode)
 
 		resp2, _ := httpJSON(t, "POST", ts.URL+"/api/auth/refresh",
 			map[string]string{"refreshToken": refreshToken}, "")
@@ -715,14 +715,14 @@ func TestE2E_AuthProtectedCRUD(t *testing.T) {
 
 	t.Run("requires auth", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/collections/authors", nil, "")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 		testutil.Equal(t, float64(401), body["code"].(float64))
 	})
 
 	t.Run("works with token", func(t *testing.T) {
 		token, _ := registerUser(t, ts.URL, "crud@test.com", "password123")
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/collections/authors", nil, token)
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.NotNil(t, body["items"])
 	})
 }
@@ -751,7 +751,7 @@ func TestE2E_Storage(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer "+token)
 		resp, err := http.DefaultClient.Do(req)
 		testutil.NoError(t, err)
-		testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 		var result map[string]any
 		json.NewDecoder(resp.Body).Decode(&result)
 		resp.Body.Close()
@@ -761,7 +761,7 @@ func TestE2E_Storage(t *testing.T) {
 
 	t.Run("list files", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/storage/testbucket", nil, token)
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, 1, len(body["items"].([]any)))
 	})
 
@@ -770,7 +770,7 @@ func TestE2E_Storage(t *testing.T) {
 		testutil.NoError(t, err)
 		data, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "Hello from E2E test!", string(data))
 	})
 
@@ -778,7 +778,7 @@ func TestE2E_Storage(t *testing.T) {
 		resp, body := httpJSON(t, "POST",
 			ts.URL+"/api/storage/testbucket/"+uploadedName+"/sign",
 			map[string]any{"expiresIn": 3600}, token)
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Contains(t, body["url"].(string), "sig=")
 	})
 
@@ -788,7 +788,7 @@ func TestE2E_Storage(t *testing.T) {
 		resp, err := http.DefaultClient.Do(req)
 		testutil.NoError(t, err)
 		resp.Body.Close()
-		testutil.Equal(t, http.StatusNoContent, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNoContent, resp.StatusCode)
 	})
 }
 
@@ -805,7 +805,7 @@ func TestE2E_RealtimeSSE(t *testing.T) {
 		resp, err := client.Get(ts.URL + "/api/realtime?tables=authors")
 		testutil.NoError(t, err)
 		defer resp.Body.Close()
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
 
 		scanner := bufio.NewScanner(resp.Body)
@@ -819,8 +819,10 @@ func TestE2E_RealtimeSSE(t *testing.T) {
 		}
 		testutil.Equal(t, "event: connected", connected[0])
 
-		http.Post(ts.URL+"/api/collections/authors", "application/json",
-			bytes.NewReader([]byte(`{"name":"SSE Author"}`)))
+		if resp, err := http.Post(ts.URL+"/api/collections/authors", "application/json",
+			bytes.NewReader([]byte(`{"name":"SSE Author"}`))); err == nil {
+			resp.Body.Close()
+		}
 
 		eventCh := make(chan string, 1)
 		go func() {
@@ -859,11 +861,15 @@ func TestE2E_RealtimeSSE(t *testing.T) {
 		}
 
 		// Create in authors (not subscribed).
-		http.Post(ts.URL+"/api/collections/authors", "application/json",
-			bytes.NewReader([]byte(`{"name":"Ignored"}`)))
+		if resp, err := http.Post(ts.URL+"/api/collections/authors", "application/json",
+			bytes.NewReader([]byte(`{"name":"Ignored"}`))); err == nil {
+			resp.Body.Close()
+		}
 		// Create in tags (subscribed).
-		http.Post(ts.URL+"/api/collections/tags", "application/json",
-			bytes.NewReader([]byte(`{"name":"sse-filter"}`)))
+		if resp, err := http.Post(ts.URL+"/api/collections/tags", "application/json",
+			bytes.NewReader([]byte(`{"name":"sse-filter"}`))); err == nil {
+			resp.Body.Close()
+		}
 
 		eventCh := make(chan string, 1)
 		go func() {
@@ -933,13 +939,13 @@ func TestE2E_WebhookDelivery(t *testing.T) {
 			"tables":  []string{"authors"},
 			"enabled": true,
 		}, adminTok)
-	testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	testutil.NotNil(t, body["id"])
 
 	// Trigger.
 	createResp, _ := httpJSON(t, "POST", ts.URL+"/api/collections/authors",
 		map[string]any{"name": "Webhook Test"}, "")
-	testutil.Equal(t, http.StatusCreated, createResp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, createResp.StatusCode)
 
 	// Wait for async delivery.
 	deadline := time.Now().Add(5 * time.Second)
@@ -1010,8 +1016,10 @@ func TestE2E_ConcurrentSSEClients(t *testing.T) {
 
 	time.Sleep(300 * time.Millisecond)
 
-	http.Post(ts.URL+"/api/collections/authors", "application/json",
-		bytes.NewReader([]byte(`{"name":"Broadcast"}`)))
+	if resp, err := http.Post(ts.URL+"/api/collections/authors", "application/json",
+		bytes.NewReader([]byte(`{"name":"Broadcast"}`))); err == nil {
+		resp.Body.Close()
+	}
 
 	for i := range events {
 		select {
@@ -1033,26 +1041,30 @@ func TestE2E_FullUserJourney(t *testing.T) {
 
 	// Health.
 	resp, body := httpJSON(t, "GET", ts.URL+"/health", nil, "")
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, "ok", body["status"].(string))
 
-	// Schema.
-	resp, body = httpJSON(t, "GET", ts.URL+"/api/schema", nil, "")
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
-	testutil.NotNil(t, body["tables"])
+	// Schema without auth should be 401.
+	resp, _ = httpJSON(t, "GET", ts.URL+"/api/schema", nil, "")
+	testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 
 	// Register.
 	token, _ := registerUser(t, ts.URL, "journey@test.com", "password123")
 
+	// Schema with auth should succeed.
+	resp, body = httpJSON(t, "GET", ts.URL+"/api/schema", nil, token)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
+	testutil.NotNil(t, body["tables"])
+
 	// Me.
 	resp, body = httpJSON(t, "GET", ts.URL+"/api/auth/me", nil, token)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, "journey@test.com", body["email"].(string))
 
 	// Create author.
 	resp, body = httpJSON(t, "POST", ts.URL+"/api/collections/authors",
 		map[string]any{"name": "Journey Author", "bio": "E2E"}, token)
-	testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	authorID := fmt.Sprintf("%.0f", body["id"].(float64))
 
 	// Create post linked to author.
@@ -1061,14 +1073,14 @@ func TestE2E_FullUserJourney(t *testing.T) {
 			"title": "Journey Post", "body": "E2E",
 			"published": true, "author_id": body["id"],
 		}, token)
-	testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 	postID := fmt.Sprintf("%.0f", body["id"].(float64))
 
 	// List with filter + expand.
 	resp, body = httpJSON(t, "GET",
 		ts.URL+"/api/collections/posts?filter=published%3Dtrue&expand=author_id&sort=-id",
 		nil, token)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	found := false
 	for _, item := range body["items"].([]any) {
 		m := item.(map[string]any)
@@ -1082,7 +1094,7 @@ func TestE2E_FullUserJourney(t *testing.T) {
 	// Update.
 	resp, body = httpJSON(t, "PATCH", ts.URL+"/api/collections/posts/"+postID,
 		map[string]any{"title": "Updated Journey"}, token)
-	testutil.Equal(t, http.StatusOK, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 	testutil.Equal(t, "Updated Journey", body["title"].(string))
 
 	// Upload file.
@@ -1097,7 +1109,7 @@ func TestE2E_FullUserJourney(t *testing.T) {
 	fileResp, err := http.DefaultClient.Do(req)
 	testutil.NoError(t, err)
 	fileResp.Body.Close()
-	testutil.Equal(t, http.StatusCreated, fileResp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, fileResp.StatusCode)
 
 	// Delete post.
 	req, _ = http.NewRequest("DELETE", ts.URL+"/api/collections/posts/"+postID, nil)
@@ -1106,11 +1118,11 @@ func TestE2E_FullUserJourney(t *testing.T) {
 	delResp, err := http.DefaultClient.Do(req)
 	testutil.NoError(t, err)
 	delResp.Body.Close()
-	testutil.Equal(t, http.StatusNoContent, delResp.StatusCode)
+	testutil.StatusCode(t, http.StatusNoContent, delResp.StatusCode)
 
 	// Confirm gone.
 	resp, _ = httpJSON(t, "GET", ts.URL+"/api/collections/posts/"+postID, nil, token)
-	testutil.Equal(t, http.StatusNotFound, resp.StatusCode)
+	testutil.StatusCode(t, http.StatusNotFound, resp.StatusCode)
 
 	// Delete author.
 	req, _ = http.NewRequest("DELETE", ts.URL+"/api/collections/authors/"+authorID, nil)
@@ -1119,7 +1131,7 @@ func TestE2E_FullUserJourney(t *testing.T) {
 	delResp, err = http.DefaultClient.Do(req)
 	testutil.NoError(t, err)
 	delResp.Body.Close()
-	testutil.Equal(t, http.StatusNoContent, delResp.StatusCode)
+	testutil.StatusCode(t, http.StatusNoContent, delResp.StatusCode)
 }
 
 // ---------------------------------------------------------------------------
@@ -1138,19 +1150,19 @@ func TestE2E_WebhookCRUD(t *testing.T) {
 				"url": "https://example.com/hook", "events": []string{"create"},
 				"tables": []string{"authors"}, "enabled": true,
 			}, adminTok)
-		testutil.Equal(t, http.StatusCreated, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusCreated, resp.StatusCode)
 		testutil.NotNil(t, body["id"])
 	})
 
 	t.Run("list", func(t *testing.T) {
 		resp, body := httpJSON(t, "GET", ts.URL+"/api/webhooks", nil, adminTok)
-		testutil.Equal(t, http.StatusOK, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusOK, resp.StatusCode)
 		testutil.True(t, len(body["items"].([]any)) >= 1, "should have webhook")
 	})
 
 	t.Run("requires admin", func(t *testing.T) {
 		resp, _ := httpJSON(t, "GET", ts.URL+"/api/webhooks", nil, "")
-		testutil.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnauthorized, resp.StatusCode)
 	})
 }
 
@@ -1165,13 +1177,13 @@ func TestE2E_ErrorHandling(t *testing.T) {
 	t.Run("PATCH nonexistent", func(t *testing.T) {
 		resp, body := httpJSON(t, "PATCH", ts.URL+"/api/collections/authors/99999",
 			map[string]any{"name": "ghost"}, "")
-		testutil.Equal(t, http.StatusNotFound, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNotFound, resp.StatusCode)
 		testutil.Equal(t, float64(404), body["code"].(float64))
 	})
 
 	t.Run("DELETE nonexistent", func(t *testing.T) {
 		resp, _ := httpJSON(t, "DELETE", ts.URL+"/api/collections/authors/99999", nil, "")
-		testutil.Equal(t, http.StatusNotFound, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusNotFound, resp.StatusCode)
 	})
 
 	t.Run("invalid JSON", func(t *testing.T) {
@@ -1180,7 +1192,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 		req.Header.Set("Content-Type", "application/json")
 		resp, _ := http.DefaultClient.Do(req)
 		resp.Body.Close()
-		testutil.Equal(t, http.StatusBadRequest, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusBadRequest, resp.StatusCode)
 	})
 
 	t.Run("empty body NOT NULL", func(t *testing.T) {
@@ -1200,7 +1212,7 @@ func TestE2E_ErrorHandling(t *testing.T) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		resp, _ := http.DefaultClient.Do(req)
 		resp.Body.Close()
-		testutil.Equal(t, http.StatusUnsupportedMediaType, resp.StatusCode)
+		testutil.StatusCode(t, http.StatusUnsupportedMediaType, resp.StatusCode)
 	})
 }
 
@@ -1248,11 +1260,11 @@ func TestE2E_RealtimeSSEWithRLS(t *testing.T) {
 
 	// Get user IDs from tokens.
 	resp1, body1 := httpJSON(t, "GET", ts.URL+"/api/auth/me", nil, user1Token)
-	testutil.Equal(t, http.StatusOK, resp1.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp1.StatusCode)
 	user1ID := body1["id"].(string)
 
 	resp2, body2 := httpJSON(t, "GET", ts.URL+"/api/auth/me", nil, user2Token)
-	testutil.Equal(t, http.StatusOK, resp2.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, resp2.StatusCode)
 	user2ID := body2["id"].(string)
 
 	// User 1 subscribes to realtime with their auth token.
@@ -1262,7 +1274,7 @@ func TestE2E_RealtimeSSEWithRLS(t *testing.T) {
 	sseResp, err := client.Do(req)
 	testutil.NoError(t, err)
 	defer sseResp.Body.Close()
-	testutil.Equal(t, http.StatusOK, sseResp.StatusCode)
+	testutil.StatusCode(t, http.StatusOK, sseResp.StatusCode)
 
 	// Skip "connected" event.
 	scanner := bufio.NewScanner(sseResp.Body)
@@ -1276,7 +1288,7 @@ func TestE2E_RealtimeSSEWithRLS(t *testing.T) {
 	// The RLS canSeeRecord check should block user1 from receiving this event.
 	createResp, _ := httpJSON(t, "POST", ts.URL+"/api/collections/messages",
 		map[string]any{"user_id": user2ID, "content": "user2 secret"}, user2Token)
-	testutil.Equal(t, http.StatusCreated, createResp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, createResp.StatusCode)
 
 	// Small delay to let the hub broadcast + RLS filter run before user1's insert.
 	time.Sleep(200 * time.Millisecond)
@@ -1284,7 +1296,7 @@ func TestE2E_RealtimeSSEWithRLS(t *testing.T) {
 	// User1 inserts via the API — user1 should receive this event.
 	createResp, _ = httpJSON(t, "POST", ts.URL+"/api/collections/messages",
 		map[string]any{"user_id": user1ID, "content": "user1 visible"}, user1Token)
-	testutil.Equal(t, http.StatusCreated, createResp.StatusCode)
+	testutil.StatusCode(t, http.StatusCreated, createResp.StatusCode)
 
 	// Collect SSE events — we expect exactly user1's event, not user2's.
 	eventCh := make(chan string, 1)

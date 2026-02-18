@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, execSQL, seedRecord } from "../fixtures";
 
 /**
  * FULL E2E TEST: Collections CRUD Operations
@@ -8,23 +8,64 @@ import { test, expect } from "@playwright/test";
  * - Read (view) records
  * - Update record
  * - Delete record
- *
- * UI-ONLY: No direct API calls
  */
 
 test.describe("Collections CRUD (Full E2E)", () => {
-  test("complete CRUD lifecycle via UI", async ({ page }) => {
+  const pendingCleanup: string[] = [];
+
+  test.afterEach(async ({ request, adminToken }) => {
+    for (const sql of pendingCleanup) {
+      await execSQL(request, adminToken, sql).catch(() => {});
+    }
+    pendingCleanup.length = 0;
+  });
+
+  test("seeded record renders in table view", async ({ page, request, adminToken }) => {
+    const runId = Date.now();
+
+    pendingCleanup.push("DROP TABLE IF EXISTS crud_test_products;");
+
+    // Arrange: create table and seed a record via API
+    await execSQL(
+      request,
+      adminToken,
+      `CREATE TABLE IF NOT EXISTS crud_test_products (
+        id SERIAL PRIMARY KEY, name TEXT NOT NULL, price DECIMAL(10,2) NOT NULL,
+        stock INTEGER DEFAULT 0, description TEXT, created_at TIMESTAMPTZ DEFAULT NOW()
+      );`,
+    );
+    await seedRecord(request, adminToken, "crud_test_products", {
+      name: `Seed Product ${runId}`,
+      price: 49.99,
+      stock: 5,
+    });
+
+    // Act: navigate to the table
+    await page.goto("/admin/");
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
+    const sidebar = page.locator("aside");
+    await expect(sidebar.getByText("crud_test_products", { exact: true })).toBeVisible({ timeout: 10000 });
+    await sidebar.getByText("crud_test_products", { exact: true }).click();
+
+    // Assert: seeded record appears in the table
+    await expect(page.getByRole("cell", { name: `Seed Product ${runId}` })).toBeVisible({ timeout: 5000 });
+
+    // Cleanup handled by afterEach
+  });
+
+  test("complete CRUD lifecycle via UI", async ({ page, request, adminToken }) => {
+    pendingCleanup.push("DROP TABLE IF EXISTS crud_test_products;");
+
     // ============================================================
     // Setup: Create test table
     // ============================================================
     await page.goto("/admin/");
-    await expect(page.getByText("AYB Admin").first()).toBeVisible();
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
 
-    // Navigate to SQL Editor via sidebar
     const sidebar = page.locator("aside");
     await sidebar.getByRole("button", { name: /^SQL Editor$/i }).click();
 
-    const sqlInput = page.locator("textarea").first();
+    const sqlInput = page.locator('.cm-content[contenteditable="true"]');
 
     const createTableSQL = `
       CREATE TABLE IF NOT EXISTS crud_test_products (
@@ -39,30 +80,25 @@ test.describe("Collections CRUD (Full E2E)", () => {
 
     await sqlInput.fill(createTableSQL);
     await page.getByRole("button", { name: /run|execute/i }).click();
-    await page.waitForTimeout(500);
+    await expect(page.getByText(/statement executed successfully/i)).toBeVisible({ timeout: 10000 });
 
     // ============================================================
     // CREATE: Add a new product
     // ============================================================
     await page.reload();
-    await expect(page.getByText("AYB Admin").first()).toBeVisible();
-
-    // Wait for sidebar to fully load after reload
+    await expect(page.getByText("Allyourbase").first()).toBeVisible();
     await expect(sidebar).toBeVisible();
 
-    // Wait for the test table to appear in sidebar (with longer timeout for table creation)
     await expect(sidebar.getByText("crud_test_products", { exact: true })).toBeVisible({ timeout: 10000 });
     await sidebar.getByText("crud_test_products", { exact: true }).click();
 
     await page.getByRole("button", { name: "New Row" }).click();
     await expect(page.getByText("New Record")).toBeVisible();
 
-    // RecordForm uses label-based layout (no name attributes on inputs)
-    await page.locator('label:has-text("name")').locator('..').locator('input, textarea').first().fill("Laptop");
-    await page.locator('label:has-text("price")').locator('..').locator('input, textarea').first().fill("999.99");
-    await page.locator('label:has-text("stock")').locator('..').locator('input, textarea').first().fill("10");
-    await page.locator('label:has-text("description")').locator('..').locator('input, textarea').first()
-      .fill("High-performance laptop");
+    await page.getByLabel("name").fill("Laptop");
+    await page.getByLabel("price").fill("999.99");
+    await page.getByLabel("stock").fill("10");
+    await page.getByLabel("description").fill("High-performance laptop");
 
     await page.getByRole("button", { name: "Create" }).click();
 
@@ -75,50 +111,38 @@ test.describe("Collections CRUD (Full E2E)", () => {
     // ============================================================
     // UPDATE: Edit the product
     // ============================================================
-    // Click the Edit button directly in the row. Do NOT click the row body first,
-    // because that opens a Row Detail drawer whose overlay blocks the row buttons.
     const laptopRow = page.locator("tr").filter({ hasText: "Laptop" });
     await laptopRow.getByRole("button", { name: /edit/i }).click();
 
-    // Update price and stock
-    const priceInput = page.locator('label:has-text("price")').locator('..').locator('input, textarea').first();
+    const priceInput = page.getByLabel("price");
     await priceInput.clear();
     await priceInput.fill("899.99");
 
-    const stockInput = page.locator('label:has-text("stock")').locator('..').locator('input, textarea').first();
+    const stockInput = page.getByLabel("stock");
     await stockInput.clear();
     await stockInput.fill("15");
 
-    // Save changes — button text is "Save Changes"
     const saveButton = page.getByRole("button", { name: /save changes|^save$|^update$/i }).first();
     await saveButton.click();
 
-    // Verify updated values appear
-    await expect(page.getByText("899.99")).toBeVisible({ timeout: 5000 });
+    const laptopRowAfterUpdate = page.locator("tr").filter({ hasText: "Laptop" });
+    await expect(laptopRowAfterUpdate.getByRole("cell", { name: "899.99" })).toBeVisible({ timeout: 5000 });
 
     // Dismiss any open drawer/overlay before proceeding
     await page.keyboard.press("Escape");
-    await page.waitForTimeout(300);
 
     // ============================================================
     // DELETE: Remove the product
     // ============================================================
-    // Click Delete button directly in the row (don't click row body to avoid drawer overlay)
     const updatedRow = page.locator("tr").filter({ hasText: "Laptop" });
     await updatedRow.getByRole("button", { name: /delete/i }).first().click();
 
-    // Confirm deletion — dialog heading is "Delete record?". Scope to dialog container
-    // to avoid matching the row's Delete button (strict mode violation).
-    const dialogHeading = page.getByRole("heading", { name: /delete record/i });
-    await expect(dialogHeading).toBeVisible({ timeout: 3000 });
-    await dialogHeading.locator("..").getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(page.getByRole("heading", { name: /delete record/i })).toBeVisible({ timeout: 3000 });
+    await page.getByRole("button", { name: "Delete", exact: true }).last().click();
 
-    // Verify product is gone
     await expect(page.getByRole("cell", { name: "Laptop", exact: true })).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole("cell", { name: /no rows/i })).toBeVisible();
 
-    // Should show empty state or "no rows"
-    await expect(page.getByText(/no.*rows|no.*records|0.*items/i)).toBeVisible();
-
-    console.log("✅ Full CRUD test passed");
+    // Cleanup handled by afterEach
   });
 });

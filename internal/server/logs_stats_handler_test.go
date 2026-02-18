@@ -37,9 +37,12 @@ func adminLogin(t *testing.T, srv *server.Server) string {
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/auth", strings.NewReader(`{"password":"testpass"}`))
 	req.Header.Set("Content-Type", "application/json")
 	srv.Router().ServeHTTP(w, req)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	var body map[string]string
-	json.Unmarshal(w.Body.Bytes(), &body)
-	return body["token"]
+	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	token := body["token"]
+	testutil.True(t, token != "", "admin login should return non-empty token")
+	return token
 }
 
 // --- Logs endpoint tests ---
@@ -53,11 +56,11 @@ func TestAdminLogsReturnsEmptyWithoutLogBuffer(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	var body map[string]any
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	entries := body["entries"].([]any)
-	testutil.Equal(t, len(entries), 0)
+	testutil.Equal(t, 0, len(entries))
 	testutil.Contains(t, body["message"].(string), "not enabled")
 }
 
@@ -83,7 +86,7 @@ func TestAdminLogsReturnsBufferedEntries(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	var body map[string]any
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	entries := body["entries"].([]any)
@@ -99,17 +102,17 @@ func TestAdminLogsReturnsBufferedEntries(t *testing.T) {
 		}
 	}
 
-	testutil.Equal(t, len(testEntries), 2)
+	testutil.Equal(t, 2, len(testEntries))
 
 	// Verify actual entry content, not just structure.
 	first := testEntries[0]
-	testutil.Equal(t, first["message"], "test message one")
-	testutil.Equal(t, first["level"], "INFO")
+	testutil.Equal(t, "test message one", first["message"])
+	testutil.Equal(t, "INFO", first["level"])
 	testutil.True(t, first["time"] != nil, "entry should have time")
 
 	second := testEntries[1]
-	testutil.Equal(t, second["message"], "test message two")
-	testutil.Equal(t, second["level"], "WARN")
+	testutil.Equal(t, "test message two", second["message"])
+	testutil.Equal(t, "WARN", second["level"])
 }
 
 func TestAdminLogsRequiresAuth(t *testing.T) {
@@ -119,7 +122,7 @@ func TestAdminLogsRequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/logs/", nil)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusUnauthorized)
+	testutil.Equal(t, http.StatusUnauthorized, w.Code)
 	testutil.Contains(t, w.Body.String(), "admin authentication required")
 }
 
@@ -134,24 +137,22 @@ func TestAdminStatsReturnsRuntimeInfo(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	var stats map[string]any
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
 
-	// Verify required fields exist.
-	testutil.True(t, stats["uptime_seconds"] != nil, "should have uptime_seconds")
-	testutil.True(t, stats["go_version"] != nil, "should have go_version")
-	testutil.True(t, stats["goroutines"] != nil, "should have goroutines")
-	testutil.True(t, stats["memory_alloc"] != nil, "should have memory_alloc")
-	testutil.True(t, stats["memory_sys"] != nil, "should have memory_sys")
-	testutil.True(t, stats["gc_cycles"] != nil, "should have gc_cycles")
-
-	// Verify values are reasonable.
+	// Verify values are present with correct types and reasonable ranges.
 	uptime := stats["uptime_seconds"].(float64)
 	testutil.True(t, uptime >= 0, "uptime should be non-negative")
 	goroutines := stats["goroutines"].(float64)
 	testutil.True(t, goroutines > 0, "goroutines should be positive")
 	testutil.Contains(t, stats["go_version"].(string), "go1.")
+	memAlloc := stats["memory_alloc"].(float64)
+	testutil.True(t, memAlloc > 0, "memory_alloc should be positive")
+	memSys := stats["memory_sys"].(float64)
+	testutil.True(t, memSys > 0, "memory_sys should be positive")
+	gcCycles := stats["gc_cycles"].(float64)
+	testutil.True(t, gcCycles >= 0, "gc_cycles should be non-negative")
 }
 
 func TestAdminStatsNoDBPoolFields(t *testing.T) {
@@ -163,7 +164,7 @@ func TestAdminStatsNoDBPoolFields(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	var stats map[string]any
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &stats))
 
@@ -178,7 +179,7 @@ func TestAdminStatsRequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/admin/stats/", nil)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusUnauthorized)
+	testutil.Equal(t, http.StatusUnauthorized, w.Code)
 	testutil.Contains(t, w.Body.String(), "admin authentication required")
 }
 
@@ -193,7 +194,7 @@ func TestAdminSecretsRotateSuccess(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 	var body map[string]string
 	testutil.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	testutil.Contains(t, body["message"], "rotated successfully")
@@ -213,7 +214,7 @@ func TestAdminSecretsRotateInvalidatesOldTokens(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/secrets/rotate", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	// Old JWT should no longer validate.
 	_, err = authSvc.ValidateToken(oldJWT)
@@ -224,7 +225,7 @@ func TestAdminSecretsRotateInvalidatesOldTokens(t *testing.T) {
 	testutil.NoError(t, err)
 	claims, err := authSvc.ValidateToken(newJWT)
 	testutil.NoError(t, err)
-	testutil.Equal(t, claims.Email, "new@example.com")
+	testutil.Equal(t, "new@example.com", claims.Email)
 }
 
 func TestAdminSecretsRotateRequiresAuth(t *testing.T) {
@@ -234,7 +235,7 @@ func TestAdminSecretsRotateRequiresAuth(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/admin/secrets/rotate", nil)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusUnauthorized)
+	testutil.Equal(t, http.StatusUnauthorized, w.Code)
 	testutil.Contains(t, w.Body.String(), "admin authentication required")
 }
 
@@ -248,7 +249,7 @@ func TestAdminSecretsNotRegisteredWithoutAuthSvc(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+token)
 	srv.Router().ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusNotFound)
+	testutil.Equal(t, http.StatusNotFound, w.Code)
 }
 
 // --- LogBuffer tests ---
@@ -263,13 +264,13 @@ func TestLogBufferCapturesEntries(t *testing.T) {
 	logger.Error("three")
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 3)
-	testutil.Equal(t, entries[0].Message, "one")
-	testutil.Equal(t, entries[0].Level, "INFO")
-	testutil.Equal(t, entries[1].Message, "two")
-	testutil.Equal(t, entries[1].Level, "WARN")
-	testutil.Equal(t, entries[2].Message, "three")
-	testutil.Equal(t, entries[2].Level, "ERROR")
+	testutil.Equal(t, 3, len(entries))
+	testutil.Equal(t, "one", entries[0].Message)
+	testutil.Equal(t, "INFO", entries[0].Level)
+	testutil.Equal(t, "two", entries[1].Message)
+	testutil.Equal(t, "WARN", entries[1].Level)
+	testutil.Equal(t, "three", entries[2].Message)
+	testutil.Equal(t, "ERROR", entries[2].Level)
 }
 
 func TestLogBufferRingOverflow(t *testing.T) {
@@ -283,10 +284,10 @@ func TestLogBufferRingOverflow(t *testing.T) {
 	logger.Info("d") // overflow: pushes out "a"
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 3)
-	testutil.Equal(t, entries[0].Message, "b")
-	testutil.Equal(t, entries[1].Message, "c")
-	testutil.Equal(t, entries[2].Message, "d")
+	testutil.Equal(t, 3, len(entries))
+	testutil.Equal(t, "b", entries[0].Message)
+	testutil.Equal(t, "c", entries[1].Message)
+	testutil.Equal(t, "d", entries[2].Message)
 }
 
 func TestLogBufferCapturesAttrs(t *testing.T) {
@@ -297,9 +298,9 @@ func TestLogBufferCapturesAttrs(t *testing.T) {
 	logger.Info("test", "key1", "value1", "key2", 42)
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 1)
-	testutil.Equal(t, entries[0].Attrs["key1"].(string), "value1")
-	testutil.Equal(t, entries[0].Attrs["key2"].(int64), int64(42))
+	testutil.Equal(t, 1, len(entries))
+	testutil.Equal(t, "value1", entries[0].Attrs["key1"].(string))
+	testutil.Equal(t, int64(42), entries[0].Attrs["key2"].(int64))
 }
 
 func TestLogBufferEmptyEntries(t *testing.T) {
@@ -307,7 +308,7 @@ func TestLogBufferEmptyEntries(t *testing.T) {
 	lb := server.NewLogBuffer(inner, 10)
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 0)
+	testutil.Equal(t, 0, len(entries))
 }
 
 func TestLogBufferExactCapacity(t *testing.T) {
@@ -321,9 +322,9 @@ func TestLogBufferExactCapacity(t *testing.T) {
 	logger.Info("c")
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 3)
-	testutil.Equal(t, entries[0].Message, "a")
-	testutil.Equal(t, entries[2].Message, "c")
+	testutil.Equal(t, 3, len(entries))
+	testutil.Equal(t, "a", entries[0].Message)
+	testutil.Equal(t, "c", entries[2].Message)
 }
 
 func TestLogBufferMultipleWraps(t *testing.T) {
@@ -337,9 +338,9 @@ func TestLogBufferMultipleWraps(t *testing.T) {
 	}
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 2)
-	testutil.Equal(t, entries[0].Message, "msg-4")
-	testutil.Equal(t, entries[1].Message, "msg-5")
+	testutil.Equal(t, 2, len(entries))
+	testutil.Equal(t, "msg-4", entries[0].Message)
+	testutil.Equal(t, "msg-5", entries[1].Message)
 }
 
 func TestLogBufferConcurrentLogging(t *testing.T) {
@@ -358,5 +359,5 @@ func TestLogBufferConcurrentLogging(t *testing.T) {
 	wg.Wait()
 
 	entries := lb.Entries()
-	testutil.Equal(t, len(entries), 20)
+	testutil.Equal(t, 20, len(entries))
 }

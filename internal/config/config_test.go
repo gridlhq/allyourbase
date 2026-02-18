@@ -11,44 +11,44 @@ import (
 func TestDefault(t *testing.T) {
 	cfg := Default()
 
-	testutil.Equal(t, cfg.Server.Host, "0.0.0.0")
-	testutil.Equal(t, cfg.Server.Port, 8090)
-	testutil.Equal(t, cfg.Server.BodyLimit, "1MB")
-	testutil.Equal(t, cfg.Server.ShutdownTimeout, 10)
+	testutil.Equal(t, "0.0.0.0", cfg.Server.Host)
+	testutil.Equal(t, 8090, cfg.Server.Port)
+	testutil.Equal(t, "1MB", cfg.Server.BodyLimit)
+	testutil.Equal(t, 10, cfg.Server.ShutdownTimeout)
 	testutil.SliceLen(t, cfg.Server.CORSAllowedOrigins, 1)
-	testutil.Equal(t, cfg.Server.CORSAllowedOrigins[0], "*")
+	testutil.Equal(t, "*", cfg.Server.CORSAllowedOrigins[0])
 
-	testutil.Equal(t, cfg.Database.MaxConns, 25)
-	testutil.Equal(t, cfg.Database.MinConns, 2)
-	testutil.Equal(t, cfg.Database.HealthCheckSecs, 30)
-	testutil.Equal(t, cfg.Database.EmbeddedPort, 15432)
-	testutil.Equal(t, cfg.Database.EmbeddedDataDir, "")
+	testutil.Equal(t, 25, cfg.Database.MaxConns)
+	testutil.Equal(t, 2, cfg.Database.MinConns)
+	testutil.Equal(t, 30, cfg.Database.HealthCheckSecs)
+	testutil.Equal(t, 15432, cfg.Database.EmbeddedPort)
+	testutil.Equal(t, "", cfg.Database.EmbeddedDataDir)
 
-	testutil.Equal(t, cfg.Admin.Enabled, true)
-	testutil.Equal(t, cfg.Admin.Path, "/admin")
+	testutil.Equal(t, true, cfg.Admin.Enabled)
+	testutil.Equal(t, "/admin", cfg.Admin.Path)
 
-	testutil.Equal(t, cfg.Auth.Enabled, false)
-	testutil.Equal(t, cfg.Auth.JWTSecret, "")
-	testutil.Equal(t, cfg.Auth.TokenDuration, 900)
-	testutil.Equal(t, cfg.Auth.RefreshTokenDuration, 604800)
-	testutil.Equal(t, cfg.Auth.RateLimit, 10)
-	testutil.Equal(t, cfg.Auth.MinPasswordLength, 8)
+	testutil.Equal(t, false, cfg.Auth.Enabled)
+	testutil.Equal(t, "", cfg.Auth.JWTSecret)
+	testutil.Equal(t, 900, cfg.Auth.TokenDuration)
+	testutil.Equal(t, 604800, cfg.Auth.RefreshTokenDuration)
+	testutil.Equal(t, 10, cfg.Auth.RateLimit)
+	testutil.Equal(t, 8, cfg.Auth.MinPasswordLength)
 
-	testutil.Equal(t, cfg.Email.Backend, "log")
-	testutil.Equal(t, cfg.Email.FromName, "AllYourBase")
-	testutil.Equal(t, cfg.Email.From, "")
+	testutil.Equal(t, "log", cfg.Email.Backend)
+	testutil.Equal(t, "AllYourBase", cfg.Email.FromName)
+	testutil.Equal(t, "", cfg.Email.From)
 
-	testutil.Equal(t, cfg.Storage.Enabled, false)
-	testutil.Equal(t, cfg.Storage.Backend, "local")
-	testutil.Equal(t, cfg.Storage.LocalPath, "./ayb_storage")
-	testutil.Equal(t, cfg.Storage.MaxFileSize, "10MB")
-	testutil.Equal(t, cfg.Storage.S3Region, "us-east-1")
-	testutil.Equal(t, cfg.Storage.S3UseSSL, true)
+	testutil.Equal(t, false, cfg.Storage.Enabled)
+	testutil.Equal(t, "local", cfg.Storage.Backend)
+	testutil.Equal(t, "./ayb_storage", cfg.Storage.LocalPath)
+	testutil.Equal(t, "10MB", cfg.Storage.MaxFileSize)
+	testutil.Equal(t, "us-east-1", cfg.Storage.S3Region)
+	testutil.Equal(t, true, cfg.Storage.S3UseSSL)
 
-	testutil.Equal(t, cfg.Database.MigrationsDir, "./migrations")
+	testutil.Equal(t, "./migrations", cfg.Database.MigrationsDir)
 
-	testutil.Equal(t, cfg.Logging.Level, "info")
-	testutil.Equal(t, cfg.Logging.Format, "json")
+	testutil.Equal(t, "info", cfg.Logging.Level)
+	testutil.Equal(t, "json", cfg.Logging.Format)
 }
 
 func TestAddress(t *testing.T) {
@@ -65,7 +65,29 @@ func TestAddress(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &Config{Server: ServerConfig{Host: tt.host, Port: tt.port}}
-			testutil.Equal(t, cfg.Address(), tt.want)
+			testutil.Equal(t, tt.want, cfg.Address())
+		})
+	}
+}
+
+func TestPublicBaseURL(t *testing.T) {
+	tests := []struct {
+		name    string
+		host    string
+		port    int
+		siteURL string
+		want    string
+	}{
+		{name: "default replaces 0.0.0.0", host: "0.0.0.0", port: 8090, want: "http://localhost:8090"},
+		{name: "empty host uses localhost", host: "", port: 8090, want: "http://localhost:8090"},
+		{name: "custom host preserved", host: "myserver.local", port: 3000, want: "http://myserver.local:3000"},
+		{name: "site_url overrides", host: "0.0.0.0", port: 8090, siteURL: "https://myapp.example.com", want: "https://myapp.example.com"},
+		{name: "site_url trailing slash stripped", host: "0.0.0.0", port: 8090, siteURL: "https://myapp.example.com/", want: "https://myapp.example.com"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Server: ServerConfig{Host: tt.host, Port: tt.port, SiteURL: tt.siteURL}}
+			testutil.Equal(t, tt.want, cfg.PublicBaseURL())
 		})
 	}
 }
@@ -249,6 +271,28 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "magic link enabled without auth enabled",
+			modify: func(c *Config) {
+				c.Auth.Enabled = false
+				c.Auth.MagicLinkEnabled = true
+			},
+			wantErr: "auth.enabled must be true to use magic link",
+		},
+		{
+			name: "magic link enabled with auth enabled",
+			modify: func(c *Config) {
+				c.Auth.Enabled = true
+				c.Auth.JWTSecret = "this-is-a-secret-that-is-at-least-32-characters-long"
+				c.Auth.MagicLinkEnabled = true
+			},
+		},
+		{
+			name: "magic link disabled is fine",
+			modify: func(c *Config) {
+				c.Auth.MagicLinkEnabled = false
+			},
+		},
+		{
 			name:   "email log backend valid",
 			modify: func(c *Config) { c.Email.Backend = "log" },
 		},
@@ -421,16 +465,16 @@ format = "text"
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Server.Host, "127.0.0.1")
-	testutil.Equal(t, cfg.Server.Port, 3000)
-	testutil.Equal(t, cfg.Database.URL, "postgresql://localhost/mydb")
-	testutil.Equal(t, cfg.Database.MaxConns, 10)
-	testutil.Equal(t, cfg.Logging.Level, "debug")
-	testutil.Equal(t, cfg.Logging.Format, "text")
+	testutil.Equal(t, "127.0.0.1", cfg.Server.Host)
+	testutil.Equal(t, 3000, cfg.Server.Port)
+	testutil.Equal(t, "postgresql://localhost/mydb", cfg.Database.URL)
+	testutil.Equal(t, 10, cfg.Database.MaxConns)
+	testutil.Equal(t, "debug", cfg.Logging.Level)
+	testutil.Equal(t, "text", cfg.Logging.Format)
 
 	// Defaults preserved for unset fields.
-	testutil.Equal(t, cfg.Database.MinConns, 2)
-	testutil.Equal(t, cfg.Admin.Enabled, true)
+	testutil.Equal(t, 2, cfg.Database.MinConns)
+	testutil.Equal(t, true, cfg.Admin.Enabled)
 }
 
 func TestLoadMinPasswordLengthFromFile(t *testing.T) {
@@ -446,15 +490,34 @@ min_password_length = 3
 
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Auth.MinPasswordLength, 3)
+	testutil.Equal(t, 3, cfg.Auth.MinPasswordLength)
+}
+
+func TestLoadSiteURLFromFile(t *testing.T) {
+	dir := t.TempDir()
+	tomlPath := filepath.Join(dir, "ayb.toml")
+
+	content := `
+[server]
+site_url = "https://prod.example.com"
+`
+	err := os.WriteFile(tomlPath, []byte(content), 0o644)
+	testutil.NoError(t, err)
+
+	cfg, err := Load(tomlPath, nil)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "https://prod.example.com", cfg.Server.SiteURL)
+	testutil.Equal(t, "https://prod.example.com", cfg.PublicBaseURL())
+	// Address() should still use the default bind address, not site_url.
+	testutil.Equal(t, "0.0.0.0:8090", cfg.Address())
 }
 
 func TestLoadMissingFileUsesDefaults(t *testing.T) {
 	// Point to a non-existent file — should silently use defaults.
 	cfg, err := Load("/nonexistent/ayb.toml", nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Server.Port, 8090)
-	testutil.Equal(t, cfg.Server.Host, "0.0.0.0")
+	testutil.Equal(t, 8090, cfg.Server.Port)
+	testutil.Equal(t, "0.0.0.0", cfg.Server.Host)
 }
 
 func TestLoadInvalidTOML(t *testing.T) {
@@ -481,16 +544,16 @@ func TestLoadEnvOverrides(t *testing.T) {
 	cfg, err := Load("/nonexistent/ayb.toml", nil)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Server.Host, "envhost")
-	testutil.Equal(t, cfg.Server.Port, 9999)
-	testutil.Equal(t, cfg.Database.URL, "postgresql://envdb")
-	testutil.Equal(t, cfg.Admin.Password, "secret123")
-	testutil.Equal(t, cfg.Logging.Level, "warn")
+	testutil.Equal(t, "envhost", cfg.Server.Host)
+	testutil.Equal(t, 9999, cfg.Server.Port)
+	testutil.Equal(t, "postgresql://envdb", cfg.Database.URL)
+	testutil.Equal(t, "secret123", cfg.Admin.Password)
+	testutil.Equal(t, "warn", cfg.Logging.Level)
 	testutil.SliceLen(t, cfg.Server.CORSAllowedOrigins, 2)
-	testutil.Equal(t, cfg.Server.CORSAllowedOrigins[0], "http://a.com")
-	testutil.Equal(t, cfg.Server.CORSAllowedOrigins[1], "http://b.com")
-	testutil.Equal(t, cfg.Auth.Enabled, true)
-	testutil.Equal(t, cfg.Auth.JWTSecret, "this-is-a-secret-that-is-at-least-32-characters-long")
+	testutil.Equal(t, "http://a.com", cfg.Server.CORSAllowedOrigins[0])
+	testutil.Equal(t, "http://b.com", cfg.Server.CORSAllowedOrigins[1])
+	testutil.Equal(t, true, cfg.Auth.Enabled)
+	testutil.Equal(t, "this-is-a-secret-that-is-at-least-32-characters-long", cfg.Auth.JWTSecret)
 }
 
 func TestLoadFlagOverrides(t *testing.T) {
@@ -503,9 +566,9 @@ func TestLoadFlagOverrides(t *testing.T) {
 	cfg, err := Load("/nonexistent/ayb.toml", flags)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Database.URL, "postgresql://flagdb")
-	testutil.Equal(t, cfg.Server.Port, 7777)
-	testutil.Equal(t, cfg.Server.Host, "flaghost")
+	testutil.Equal(t, "postgresql://flagdb", cfg.Database.URL)
+	testutil.Equal(t, 7777, cfg.Server.Port)
+	testutil.Equal(t, "flaghost", cfg.Server.Host)
 }
 
 func TestLoadPriority(t *testing.T) {
@@ -521,12 +584,12 @@ func TestLoadPriority(t *testing.T) {
 
 	cfg, err := Load(tomlPath, flags)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Server.Port, 5000)
+	testutil.Equal(t, 5000, cfg.Server.Port)
 
 	// Without flag, env wins over file.
 	cfg, err = Load(tomlPath, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Server.Port, 4000)
+	testutil.Equal(t, 4000, cfg.Server.Port)
 }
 
 func TestLoadEnvOverridesFile(t *testing.T) {
@@ -539,7 +602,7 @@ func TestLoadEnvOverridesFile(t *testing.T) {
 
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Server.Host, "envhost")
+	testutil.Equal(t, "envhost", cfg.Server.Host)
 }
 
 func TestGenerateDefault(t *testing.T) {
@@ -578,7 +641,7 @@ func TestApplyFlagsNilSafe(t *testing.T) {
 	cfg := Default()
 	// Should not panic with nil flags.
 	applyFlags(cfg, nil)
-	testutil.Equal(t, cfg.Server.Port, 8090)
+	testutil.Equal(t, 8090, cfg.Server.Port)
 }
 
 func TestApplyFlagsEmptyValues(t *testing.T) {
@@ -590,16 +653,16 @@ func TestApplyFlagsEmptyValues(t *testing.T) {
 	}
 	applyFlags(cfg, flags)
 	// Empty values should not override defaults.
-	testutil.Equal(t, cfg.Server.Host, "0.0.0.0")
-	testutil.Equal(t, cfg.Server.Port, 8090)
+	testutil.Equal(t, "0.0.0.0", cfg.Server.Host)
+	testutil.Equal(t, 8090, cfg.Server.Port)
 }
 
 func TestApplyEnvInvalidPort(t *testing.T) {
 	t.Setenv("AYB_SERVER_PORT", "notanumber")
 	cfg := Default()
-	applyEnv(cfg)
-	// Invalid port should be silently ignored, keeping the default.
-	testutil.Equal(t, cfg.Server.Port, 8090)
+	err := applyEnv(cfg)
+	testutil.ErrorContains(t, err, "not an integer")
+	testutil.Equal(t, 8090, cfg.Server.Port) // unchanged on error
 }
 
 func TestStorageMaxFileSizeBytes(t *testing.T) {
@@ -616,7 +679,7 @@ func TestStorageMaxFileSizeBytes(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			cfg := &StorageConfig{MaxFileSize: tt.input}
-			testutil.Equal(t, cfg.MaxFileSizeBytes(), tt.want)
+			testutil.Equal(t, tt.want, cfg.MaxFileSizeBytes())
 		})
 	}
 }
@@ -628,12 +691,13 @@ func TestApplyStorageEnvVars(t *testing.T) {
 	t.Setenv("AYB_STORAGE_MAX_FILE_SIZE", "50MB")
 
 	cfg := Default()
-	applyEnv(cfg)
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Storage.Enabled, true)
-	testutil.Equal(t, cfg.Storage.Backend, "local")
-	testutil.Equal(t, cfg.Storage.LocalPath, "/tmp/custom")
-	testutil.Equal(t, cfg.Storage.MaxFileSize, "50MB")
+	testutil.Equal(t, true, cfg.Storage.Enabled)
+	testutil.Equal(t, "local", cfg.Storage.Backend)
+	testutil.Equal(t, "/tmp/custom", cfg.Storage.LocalPath)
+	testutil.Equal(t, "50MB", cfg.Storage.MaxFileSize)
 }
 
 func TestApplyS3StorageEnvVars(t *testing.T) {
@@ -645,7 +709,8 @@ func TestApplyS3StorageEnvVars(t *testing.T) {
 	t.Setenv("AYB_STORAGE_S3_USE_SSL", "false")
 
 	cfg := Default()
-	applyEnv(cfg)
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
 
 	testutil.Equal(t, cfg.Storage.S3Endpoint, "s3.amazonaws.com")
 	testutil.Equal(t, cfg.Storage.S3Bucket, "test-bucket")
@@ -688,17 +753,19 @@ func TestApplyEmbeddedEnvVars(t *testing.T) {
 	t.Setenv("AYB_DATABASE_EMBEDDED_DATA_DIR", "/custom/data")
 
 	cfg := Default()
-	applyEnv(cfg)
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Database.EmbeddedPort, 19999)
-	testutil.Equal(t, cfg.Database.EmbeddedDataDir, "/custom/data")
+	testutil.Equal(t, 19999, cfg.Database.EmbeddedPort)
+	testutil.Equal(t, "/custom/data", cfg.Database.EmbeddedDataDir)
 }
 
 func TestApplyEmbeddedPortInvalidEnv(t *testing.T) {
 	t.Setenv("AYB_DATABASE_EMBEDDED_PORT", "notanumber")
 	cfg := Default()
-	applyEnv(cfg)
-	testutil.Equal(t, cfg.Database.EmbeddedPort, 15432) // unchanged
+	err := applyEnv(cfg)
+	testutil.ErrorContains(t, err, "not an integer")
+	testutil.Equal(t, 15432, cfg.Database.EmbeddedPort) // unchanged on error
 }
 
 func TestGenerateDefaultContainsEmbedded(t *testing.T) {
@@ -721,18 +788,19 @@ func TestApplyOAuthEnvVars(t *testing.T) {
 	t.Setenv("AYB_AUTH_OAUTH_REDIRECT_URL", "http://myapp.com/callback")
 
 	cfg := Default()
-	applyEnv(cfg)
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Auth.OAuthRedirectURL, "http://myapp.com/callback")
+	testutil.Equal(t, "http://myapp.com/callback", cfg.Auth.OAuthRedirectURL)
 	testutil.NotNil(t, cfg.Auth.OAuth)
 
 	g := cfg.Auth.OAuth["google"]
-	testutil.Equal(t, g.ClientID, "env-google-id")
-	testutil.Equal(t, g.ClientSecret, "env-google-secret")
+	testutil.Equal(t, "env-google-id", g.ClientID)
+	testutil.Equal(t, "env-google-secret", g.ClientSecret)
 	testutil.True(t, g.Enabled, "google should be enabled")
 
 	gh := cfg.Auth.OAuth["github"]
-	testutil.Equal(t, gh.ClientID, "env-github-id")
+	testutil.Equal(t, "env-github-id", gh.ClientID)
 	testutil.False(t, gh.Enabled, "github should not be enabled (no ENABLED env)")
 }
 
@@ -751,15 +819,15 @@ func TestApplyEmailEnvVars(t *testing.T) {
 	err := applyEnv(cfg)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Email.Backend, "smtp")
-	testutil.Equal(t, cfg.Email.From, "noreply@example.com")
-	testutil.Equal(t, cfg.Email.FromName, "MyApp")
-	testutil.Equal(t, cfg.Email.SMTP.Host, "smtp.resend.com")
-	testutil.Equal(t, cfg.Email.SMTP.Port, 465)
-	testutil.Equal(t, cfg.Email.SMTP.Username, "apikey")
-	testutil.Equal(t, cfg.Email.SMTP.Password, "re_secret")
-	testutil.Equal(t, cfg.Email.SMTP.AuthMethod, "LOGIN")
-	testutil.Equal(t, cfg.Email.SMTP.TLS, true)
+	testutil.Equal(t, "smtp", cfg.Email.Backend)
+	testutil.Equal(t, "noreply@example.com", cfg.Email.From)
+	testutil.Equal(t, "MyApp", cfg.Email.FromName)
+	testutil.Equal(t, "smtp.resend.com", cfg.Email.SMTP.Host)
+	testutil.Equal(t, 465, cfg.Email.SMTP.Port)
+	testutil.Equal(t, "apikey", cfg.Email.SMTP.Username)
+	testutil.Equal(t, "re_secret", cfg.Email.SMTP.Password)
+	testutil.Equal(t, "LOGIN", cfg.Email.SMTP.AuthMethod)
+	testutil.Equal(t, true, cfg.Email.SMTP.TLS)
 }
 
 func TestApplyAuthRateLimitEnvVar(t *testing.T) {
@@ -768,15 +836,16 @@ func TestApplyAuthRateLimitEnvVar(t *testing.T) {
 	cfg := Default()
 	err := applyEnv(cfg)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Auth.RateLimit, 25)
+	testutil.Equal(t, 25, cfg.Auth.RateLimit)
 }
 
 func TestApplyAuthRateLimitInvalidEnv(t *testing.T) {
 	t.Setenv("AYB_AUTH_RATE_LIMIT", "notanumber")
 
 	cfg := Default()
-	applyEnv(cfg)
-	testutil.Equal(t, cfg.Auth.RateLimit, 10) // unchanged
+	err := applyEnv(cfg)
+	testutil.ErrorContains(t, err, "not an integer")
+	testutil.Equal(t, 10, cfg.Auth.RateLimit) // unchanged on error
 }
 
 func TestApplyMinPasswordLengthEnvVar(t *testing.T) {
@@ -785,15 +854,16 @@ func TestApplyMinPasswordLengthEnvVar(t *testing.T) {
 	cfg := Default()
 	err := applyEnv(cfg)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Auth.MinPasswordLength, 3)
+	testutil.Equal(t, 3, cfg.Auth.MinPasswordLength)
 }
 
 func TestApplyMinPasswordLengthInvalidEnv(t *testing.T) {
 	t.Setenv("AYB_AUTH_MIN_PASSWORD_LENGTH", "notanumber")
 
 	cfg := Default()
-	applyEnv(cfg)
-	testutil.Equal(t, cfg.Auth.MinPasswordLength, 8) // unchanged
+	err := applyEnv(cfg)
+	testutil.ErrorContains(t, err, "not an integer")
+	testutil.Equal(t, 8, cfg.Auth.MinPasswordLength) // unchanged on error
 }
 
 func TestApplyEmailWebhookEnvVars(t *testing.T) {
@@ -806,10 +876,34 @@ func TestApplyEmailWebhookEnvVars(t *testing.T) {
 	err := applyEnv(cfg)
 	testutil.NoError(t, err)
 
-	testutil.Equal(t, cfg.Email.Backend, "webhook")
-	testutil.Equal(t, cfg.Email.Webhook.URL, "https://hooks.example.com/email")
-	testutil.Equal(t, cfg.Email.Webhook.Secret, "whsec_abc123")
-	testutil.Equal(t, cfg.Email.Webhook.Timeout, 30)
+	testutil.Equal(t, "webhook", cfg.Email.Backend)
+	testutil.Equal(t, "https://hooks.example.com/email", cfg.Email.Webhook.URL)
+	testutil.Equal(t, "whsec_abc123", cfg.Email.Webhook.Secret)
+	testutil.Equal(t, 30, cfg.Email.Webhook.Timeout)
+}
+
+func TestApplySiteURLEnvVar(t *testing.T) {
+	t.Setenv("AYB_SERVER_SITE_URL", "https://myapp.example.com")
+
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+	testutil.Equal(t, "https://myapp.example.com", cfg.Server.SiteURL)
+	testutil.Equal(t, "https://myapp.example.com", cfg.PublicBaseURL())
+}
+
+func TestApplySiteURLEnvVarOverridesHost(t *testing.T) {
+	t.Setenv("AYB_SERVER_HOST", "192.168.1.100")
+	t.Setenv("AYB_SERVER_PORT", "3000")
+	t.Setenv("AYB_SERVER_SITE_URL", "https://myapp.example.com")
+
+	cfg := Default()
+	err := applyEnv(cfg)
+	testutil.NoError(t, err)
+	// site_url takes precedence over host:port in PublicBaseURL
+	testutil.Equal(t, "https://myapp.example.com", cfg.PublicBaseURL())
+	// But Address() is still the raw bind address
+	testutil.Equal(t, "192.168.1.100:3000", cfg.Address())
 }
 
 // --- GetValue / SetValue / IsValidKey tests ---
@@ -821,6 +915,7 @@ func TestIsValidKey(t *testing.T) {
 	}{
 		{"server.port", true},
 		{"server.host", true},
+		{"server.site_url", true},
 		{"database.url", true},
 		{"auth.enabled", true},
 		{"auth.jwt_secret", true},
@@ -828,6 +923,8 @@ func TestIsValidKey(t *testing.T) {
 		{"storage.s3_bucket", true},
 		{"logging.level", true},
 		{"logging.format", true},
+		{"auth.magic_link_enabled", true},
+		{"auth.magic_link_duration", true},
 		{"server.nonexistent", false},
 		{"", false},
 		{"invalid", false},
@@ -836,7 +933,7 @@ func TestIsValidKey(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.key, func(t *testing.T) {
-			testutil.Equal(t, IsValidKey(tt.key), tt.want)
+			testutil.Equal(t, tt.want, IsValidKey(tt.key))
 		})
 	}
 }
@@ -851,11 +948,14 @@ func TestGetValue(t *testing.T) {
 	}{
 		{"server.host", "0.0.0.0", false},
 		{"server.port", 8090, false},
+		{"server.site_url", "", false},
 		{"database.max_conns", 25, false},
 		{"admin.enabled", true, false},
 		{"auth.enabled", false, false},
 		{"logging.level", "info", false},
 		{"storage.backend", "local", false},
+		{"auth.magic_link_enabled", false, false},
+		{"auth.magic_link_duration", 600, false},
 		{"unknown.key", nil, true},
 	}
 	for _, tt := range tests {
@@ -865,7 +965,7 @@ func TestGetValue(t *testing.T) {
 				testutil.True(t, err != nil, "expected error for key: "+tt.key)
 			} else {
 				testutil.NoError(t, err)
-				testutil.Equal(t, val, tt.want)
+				testutil.Equal(t, tt.want, val)
 			}
 		})
 	}
@@ -891,8 +991,8 @@ func TestSetValue(t *testing.T) {
 	// Load and verify both values.
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Server.Port, 3000)
-	testutil.Equal(t, cfg.Server.Host, "127.0.0.1")
+	testutil.Equal(t, 3000, cfg.Server.Port)
+	testutil.Equal(t, "127.0.0.1", cfg.Server.Host)
 }
 
 func TestSetValueBoolean(t *testing.T) {
@@ -930,8 +1030,8 @@ func TestSetValuePreservesExisting(t *testing.T) {
 	// Host should still be there.
 	cfg, err := Load(tomlPath, nil)
 	testutil.NoError(t, err)
-	testutil.Equal(t, cfg.Server.Port, 3000)
-	testutil.Equal(t, cfg.Server.Host, "0.0.0.0")
+	testutil.Equal(t, 3000, cfg.Server.Port)
+	testutil.Equal(t, "0.0.0.0", cfg.Server.Host)
 }
 
 func TestCoerceValue(t *testing.T) {
@@ -947,12 +1047,15 @@ func TestCoerceValue(t *testing.T) {
 		{"storage.enabled", "0", false},
 		{"server.host", "myhost", "myhost"},
 		{"database.url", "postgresql://localhost", "postgresql://localhost"},
+		{"auth.magic_link_enabled", "true", true},
+		{"auth.magic_link_enabled", "false", false},
+		{"auth.magic_link_duration", "300", 300},
 		{"server.port", "notanumber", "notanumber"}, // falls through to string
 	}
 	for _, tt := range tests {
 		t.Run(tt.key+"="+tt.value, func(t *testing.T) {
 			got := coerceValue(tt.key, tt.value)
-			testutil.Equal(t, got, tt.want)
+			testutil.Equal(t, tt.want, got)
 		})
 	}
 }

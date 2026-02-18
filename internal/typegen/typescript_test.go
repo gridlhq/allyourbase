@@ -248,7 +248,7 @@ func TestPascalCase(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {
-			testutil.Equal(t, pascalCase(tt.in), tt.want)
+			testutil.Equal(t, tt.want, pascalCase(tt.in))
 		})
 	}
 }

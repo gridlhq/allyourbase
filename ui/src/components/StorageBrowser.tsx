@@ -173,6 +173,7 @@ export function StorageBrowser() {
             value={bucket}
             onChange={(e) => setBucket(e.target.value)}
             placeholder="bucket name"
+            aria-label="Bucket name"
             className="px-2 py-1 text-sm border rounded w-40 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
@@ -183,6 +184,7 @@ export function StorageBrowser() {
             type="file"
             multiple
             className="hidden"
+            aria-label="Upload file"
             onChange={(e) => {
               if (e.target.files?.length) handleUpload(e.target.files);
             }}
@@ -280,6 +282,7 @@ export function StorageBrowser() {
                         }
                         className="shrink-0 p-0.5 text-gray-300 hover:text-gray-500"
                         title="Copy name"
+                        aria-label="Copy name"
                       >
                         <Copy className="w-3 h-3" />
                       </button>
@@ -303,6 +306,7 @@ export function StorageBrowser() {
                           }
                           className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
                           title="Preview"
+                          aria-label="Preview"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
@@ -313,6 +317,7 @@ export function StorageBrowser() {
                         rel="noopener noreferrer"
                         className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 inline-block"
                         title="Download"
+                        aria-label="Download"
                       >
                         <Download className="w-3.5 h-3.5" />
                       </a>
@@ -320,6 +325,7 @@ export function StorageBrowser() {
                         onClick={() => handleSignedURL(f)}
                         className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
                         title="Copy signed URL"
+                        aria-label="Copy signed URL"
                       >
                         <Link2 className="w-3.5 h-3.5" />
                       </button>
@@ -332,6 +338,7 @@ export function StorageBrowser() {
                         }
                         className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
                         title="Copy download URL"
+                        aria-label="Copy download URL"
                       >
                         <Copy className="w-3.5 h-3.5" />
                       </button>
@@ -339,6 +346,7 @@ export function StorageBrowser() {
                         onClick={() => setModal({ kind: "delete", file: f })}
                         className="p-1 text-gray-400 hover:text-red-600 rounded hover:bg-gray-100"
                         title="Delete"
+                        aria-label="Delete"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -360,6 +368,7 @@ export function StorageBrowser() {
               <button
                 onClick={() => setModal({ kind: "none" })}
                 className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>

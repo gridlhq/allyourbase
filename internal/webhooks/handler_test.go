@@ -297,7 +297,15 @@ func TestListAfterCreate(t *testing.T) {
 	testutil.Equal(t, http.StatusOK, w.Code)
 	var listResp map[string]any
 	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&listResp))
-	testutil.Equal(t, 2, len(listResp["items"].([]any)))
+	items := listResp["items"].([]any)
+	testutil.Equal(t, 2, len(items))
+	// Verify the created webhooks are actually present with correct URLs.
+	urls := map[string]bool{}
+	for _, item := range items {
+		urls[item.(map[string]any)["url"].(string)] = true
+	}
+	testutil.True(t, urls["http://example.com/a"], "should contain webhook a")
+	testutil.True(t, urls["http://example.com/b"], "should contain webhook b")
 }
 
 func TestUpdateSuccess(t *testing.T) {
@@ -321,6 +329,12 @@ func TestUpdateSuccess(t *testing.T) {
 	testutil.Equal(t, "http://example.com/updated", updated["url"].(string))
 	events := updated["events"].([]any)
 	testutil.Equal(t, 2, len(events))
+	eventSet := map[string]bool{}
+	for _, e := range events {
+		eventSet[e.(string)] = true
+	}
+	testutil.True(t, eventSet["create"], "events should contain 'create'")
+	testutil.True(t, eventSet["delete"], "events should contain 'delete'")
 	// Secret wasn't sent in PATCH, so it should still be set.
 	testutil.Equal(t, true, updated["hasSecret"].(bool))
 }
@@ -451,6 +465,7 @@ func TestTestConnectionRefused(t *testing.T) {
 	testutil.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	testutil.Equal(t, false, resp.Success)
 	testutil.True(t, resp.Error != "", "error message should be present")
+	testutil.Contains(t, resp.Error, "connect")
 	testutil.True(t, resp.DurationMs >= 0, "durationMs should be non-negative")
 }
 
@@ -503,6 +518,14 @@ func TestListDeliveriesWithData(t *testing.T) {
 	testutil.Equal(t, 3, len(resp.Items))
 	testutil.Equal(t, 3, resp.TotalItems)
 	testutil.Equal(t, 1, resp.TotalPages)
+	// Verify each delivery has the expected fields.
+	for _, del := range resp.Items {
+		testutil.Equal(t, "wh1", del.WebhookID)
+		testutil.Equal(t, "create", del.EventAction)
+		testutil.Equal(t, "posts", del.EventTable)
+		testutil.Equal(t, true, del.Success)
+		testutil.Equal(t, 200, del.StatusCode)
+	}
 }
 
 func TestListDeliveriesPagination(t *testing.T) {
@@ -533,6 +556,12 @@ func TestListDeliveriesPagination(t *testing.T) {
 	testutil.Equal(t, 3, resp.TotalPages)
 	testutil.Equal(t, 1, resp.Page)
 	testutil.Equal(t, 2, resp.PerPage)
+	// Verify returned deliveries have expected fields.
+	for _, del := range resp.Items {
+		testutil.Equal(t, "wh1", del.WebhookID)
+		testutil.Equal(t, "create", del.EventAction)
+		testutil.Equal(t, "posts", del.EventTable)
+	}
 }
 
 func TestListDeliveriesPerPageClamped(t *testing.T) {
@@ -648,7 +677,9 @@ func TestPrunerNilDeliveryStoreNoOp(t *testing.T) {
 	d.StartPruner(10*time.Millisecond, 7*24*time.Hour)
 	time.Sleep(30 * time.Millisecond)
 	d.Close()
-	// If we get here without panic/hang, the test passes.
+
+	// Delivery store should still be nil (pruner never started).
+	testutil.Nil(t, d.deliveryS)
 }
 
 func TestPrunerStopsOnClose(t *testing.T) {

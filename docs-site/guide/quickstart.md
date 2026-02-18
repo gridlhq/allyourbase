@@ -1,6 +1,6 @@
 # Quickstart: Build a Todo App
 
-Build a working CRUD app with AllYourBase in 5 minutes.
+Build a working CRUD app with Allyourbase in 5 minutes.
 
 ## 1. Start AYB
 

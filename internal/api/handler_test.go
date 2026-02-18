@@ -12,8 +12,6 @@ import (
 	"github.com/allyourbase/ayb/internal/httputil"
 	"github.com/allyourbase/ayb/internal/schema"
 	"github.com/allyourbase/ayb/internal/testutil"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // testSchema creates a minimal schema cache with a "users" table for testing.
@@ -228,7 +226,7 @@ func TestListInvalidFilter(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "invalid filter")
-	testutil.Contains(t, resp.DocURL, "/api/filtering")
+	testutil.Contains(t, resp.DocURL, "/guide/api-reference#filter-syntax")
 }
 
 // --- parseFields ---
@@ -262,14 +260,14 @@ func TestParseSortSQLAscending(t *testing.T) {
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 	result := parseSortSQL(tbl, "email")
-	testutil.Contains(t, result, `"email" ASC`)
+	testutil.Equal(t, `"email" ASC`, result)
 }
 
 func TestParseSortSQLDescending(t *testing.T) {
 	sc := testSchema()
 	tbl := sc.TableByName("users")
 	result := parseSortSQL(tbl, "-email")
-	testutil.Contains(t, result, `"email" DESC`)
+	testutil.Equal(t, `"email" DESC`, result)
 }
 
 func TestParseSortSQLSkipsUnknownColumns(t *testing.T) {
@@ -279,74 +277,18 @@ func TestParseSortSQLSkipsUnknownColumns(t *testing.T) {
 	testutil.Equal(t, "", result)
 }
 
-// --- mapPGError ---
-
-func TestMapPGErrorNilError(t *testing.T) {
-	w := httptest.NewRecorder()
-	handled := mapPGError(w, nil)
-	testutil.True(t, !handled, "nil error should not be handled")
-}
-
-func TestMapPGErrorNoRows(t *testing.T) {
-	w := httptest.NewRecorder()
-	handled := mapPGError(w, pgx.ErrNoRows)
-	testutil.True(t, handled, "ErrNoRows should be handled")
-	testutil.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestMapPGErrorUniqueViolation(t *testing.T) {
-	w := httptest.NewRecorder()
-	pgErr := &pgconn.PgError{Code: "23505", ConstraintName: "users_email_key", Detail: "already exists"}
-	handled := mapPGError(w, pgErr)
-	testutil.True(t, handled, "unique violation should be handled")
-	testutil.Equal(t, http.StatusConflict, w.Code)
-}
-
-func TestMapPGErrorForeignKeyViolation(t *testing.T) {
-	w := httptest.NewRecorder()
-	pgErr := &pgconn.PgError{Code: "23503", ConstraintName: "fk_user", Detail: "not present"}
-	handled := mapPGError(w, pgErr)
-	testutil.True(t, handled, "FK violation should be handled")
-	testutil.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestMapPGErrorNotNullViolation(t *testing.T) {
-	w := httptest.NewRecorder()
-	pgErr := &pgconn.PgError{Code: "23502", ColumnName: "email", Message: "null value"}
-	handled := mapPGError(w, pgErr)
-	testutil.True(t, handled, "not-null violation should be handled")
-	testutil.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestMapPGErrorCheckViolation(t *testing.T) {
-	w := httptest.NewRecorder()
-	pgErr := &pgconn.PgError{Code: "23514", ConstraintName: "positive_amount", Detail: "check failed"}
-	handled := mapPGError(w, pgErr)
-	testutil.True(t, handled, "check violation should be handled")
-	testutil.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestMapPGErrorInvalidText(t *testing.T) {
-	w := httptest.NewRecorder()
-	pgErr := &pgconn.PgError{Code: "22P02", Message: "invalid input syntax"}
-	handled := mapPGError(w, pgErr)
-	testutil.True(t, handled, "invalid text should be handled")
-	testutil.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-func TestMapPGErrorUnknownCode(t *testing.T) {
-	w := httptest.NewRecorder()
-	pgErr := &pgconn.PgError{Code: "99999"}
-	handled := mapPGError(w, pgErr)
-	testutil.True(t, !handled, "unknown PG error code should not be handled")
-}
-
 // --- Content-Type on responses ---
 
 func TestErrorResponseIsJSON(t *testing.T) {
 	h := testHandler(testSchema())
 	w := doRequest(h, "GET", "/collections/nonexistent", "")
 	testutil.Equal(t, "application/json", w.Header().Get("Content-Type"))
+
+	var resp httputil.ErrorResponse
+	err := json.NewDecoder(w.Body).Decode(&resp)
+	testutil.NoError(t, err)
+	testutil.Equal(t, http.StatusNotFound, resp.Code)
+	testutil.Contains(t, resp.Message, "not found")
 }
 
 // --- API key scope enforcement ---
@@ -382,6 +324,8 @@ func TestReadonlyScopeDeniesUpdate(t *testing.T) {
 	claims := &auth.Claims{APIKeyScope: "readonly"}
 	w := doRequestWithClaims(h, "PATCH", "/collections/users/123", `{"email":"a@b.com"}`, claims)
 	testutil.Equal(t, http.StatusForbidden, w.Code)
+	resp := decodeError(t, w)
+	testutil.Contains(t, resp.Message, "write operations")
 }
 
 func TestReadonlyScopeDeniesDelete(t *testing.T) {
@@ -389,12 +333,12 @@ func TestReadonlyScopeDeniesDelete(t *testing.T) {
 	claims := &auth.Claims{APIKeyScope: "readonly"}
 	w := doRequestWithClaims(h, "DELETE", "/collections/users/123", "", claims)
 	testutil.Equal(t, http.StatusForbidden, w.Code)
+	resp := decodeError(t, w)
+	testutil.Contains(t, resp.Message, "write operations")
 }
 
-func TestReadonlyScopeIsReadAllowed(t *testing.T) {
-	claims := &auth.Claims{APIKeyScope: "readonly"}
-	testutil.True(t, claims.IsReadAllowed(), "readonly scope should allow reads")
-}
+// Removed: TestReadonlyScopeIsReadAllowed — tested auth.Claims directly without
+// going through the handler. Covered by TestClaimsIsReadAllowed in auth/apikeys_test.go.
 
 func TestTableScopeDeniesUnauthorizedTable(t *testing.T) {
 	h := testHandler(testSchema())
@@ -405,20 +349,9 @@ func TestTableScopeDeniesUnauthorizedTable(t *testing.T) {
 	testutil.Contains(t, resp.Message, "does not have access to table")
 }
 
-func TestCheckTableScopeAllowsAuthorizedTable(t *testing.T) {
-	claims := &auth.Claims{AllowedTables: []string{"users"}}
-	testutil.NoError(t, auth.CheckTableScope(claims, "users"))
-}
-
-func TestCheckWriteScopeAllowsFullAccess(t *testing.T) {
-	claims := &auth.Claims{APIKeyScope: "*"}
-	testutil.NoError(t, auth.CheckWriteScope(claims))
-}
-
-func TestCheckWriteScopeAllowsReadwrite(t *testing.T) {
-	claims := &auth.Claims{APIKeyScope: "readwrite"}
-	testutil.NoError(t, auth.CheckWriteScope(claims))
-}
+// Removed: TestCheckTableScopeAllowsAuthorizedTable, TestCheckWriteScopeAllowsFullAccess,
+// TestCheckWriteScopeAllowsReadwrite — tested auth package functions directly without
+// going through the handler. Covered in auth/apikeys_test.go.
 
 // --- Edge cases: primary key parsing ---
 
@@ -431,6 +364,7 @@ func TestListFilterTooLong(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "filter expression too long")
+	testutil.Contains(t, resp.DocURL, "/guide/api-reference#filter-syntax")
 }
 
 func TestListSearchTooLong(t *testing.T) {
@@ -440,6 +374,7 @@ func TestListSearchTooLong(t *testing.T) {
 	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	resp := decodeError(t, w)
 	testutil.Contains(t, resp.Message, "search term too long")
+	testutil.Contains(t, resp.DocURL, "/guide/api-reference#full-text-search")
 }
 
 func TestParseSortSQLMaxFieldsLimit(t *testing.T) {
@@ -455,16 +390,11 @@ func TestParseSortSQLMaxFieldsLimit(t *testing.T) {
 	result := parseSortSQL(tbl, strings.Join(parts, ","))
 	// Count commas to determine number of clauses.
 	clauseCount := strings.Count(result, ",") + 1
-	testutil.True(t, clauseCount <= maxSortFields, "sort should be capped at maxSortFields")
+	testutil.Equal(t, maxSortFields, clauseCount)
 }
 
-func TestPageNumberCapped(t *testing.T) {
-	// Verify the page cap prevents integer overflow.
-	// We can't easily test the full HTTP path without a DB, but we can test that
-	// the parseSortSQL/pagination logic clamps. Instead, verify the constant.
-	testutil.True(t, maxPage > 0, "maxPage should be positive")
-	testutil.True(t, maxPage*500 > 0, "maxPage*maxPerPage should not overflow int")
-}
+// maxPage clamping is exercised via integration tests.
+// The constant-arithmetic assertions that were here tested nothing behavioral.
 
 // --- Edge cases: primary key parsing ---
 

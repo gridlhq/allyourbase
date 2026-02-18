@@ -36,6 +36,7 @@ type Handler struct {
 	oauthStateStore  *OAuthStateStore
 	oauthRedirectURL string
 	oauthPublisher   OAuthPublisher // nil when realtime hub not available
+	magicLinkEnabled bool
 }
 
 // NewHandler creates a new auth handler.
@@ -63,6 +64,11 @@ func (h *Handler) SetOAuthPublisher(pub OAuthPublisher) {
 	h.oauthPublisher = pub
 }
 
+// SetMagicLinkEnabled enables or disables the magic link endpoints.
+func (h *Handler) SetMagicLinkEnabled(enabled bool) {
+	h.magicLinkEnabled = enabled
+}
+
 // Routes returns a chi.Router with auth endpoints mounted.
 func (h *Handler) Routes() chi.Router {
 	r := chi.NewRouter()
@@ -76,6 +82,8 @@ func (h *Handler) Routes() chi.Router {
 	r.Post("/password-reset/confirm", h.handlePasswordResetConfirm)
 	r.Post("/verify", h.handleVerifyEmail)
 	r.With(RequireAuth(h.auth)).Post("/verify/resend", h.handleResendVerification)
+	r.Post("/magic-link", h.handleMagicLinkRequest)
+	r.Post("/magic-link/confirm", h.handleMagicLinkConfirm)
 	r.Get("/oauth/{provider}", h.handleOAuthRedirect)
 	r.Get("/oauth/{provider}/callback", h.handleOAuthCallback)
 
@@ -118,10 +126,10 @@ func (h *Handler) handleRegister(w http.ResponseWriter, r *http.Request) {
 			// Strip the "validation error: " sentinel prefix from user-facing message.
 			msg := strings.TrimPrefix(err.Error(), ErrValidation.Error()+": ")
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, msg,
-				"https://allyourbase.io/guide/auth")
+				"https://allyourbase.io/guide/authentication")
 		case errors.Is(err, ErrEmailTaken):
 			httputil.WriteErrorWithDocURL(w, http.StatusConflict, "email already registered",
-				"https://allyourbase.io/guide/auth")
+				"https://allyourbase.io/guide/authentication")
 		default:
 			h.logger.Error("register error", "error", err)
 			httputil.WriteError(w, http.StatusInternalServerError, "internal error")
@@ -143,7 +151,7 @@ func (h *Handler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrInvalidCredentials) {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid email or password",
-				"https://allyourbase.io/guide/auth")
+				"https://allyourbase.io/guide/authentication")
 			return
 		}
 		h.logger.Error("login error", "error", err)
@@ -203,7 +211,7 @@ func (h *Handler) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, ErrInvalidRefreshToken) {
 			httputil.WriteErrorWithDocURL(w, http.StatusUnauthorized,
 				"invalid or expired refresh token",
-				"https://allyourbase.io/guide/auth")
+				"https://allyourbase.io/guide/authentication")
 			return
 		}
 		h.logger.Error("refresh error", "error", err)
@@ -283,7 +291,7 @@ func (h *Handler) handlePasswordResetConfirm(w http.ResponseWriter, r *http.Requ
 		switch {
 		case errors.Is(err, ErrInvalidResetToken):
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired reset token",
-				"https://allyourbase.io/guide/auth")
+				"https://allyourbase.io/guide/authentication")
 		case errors.Is(err, ErrValidation):
 			msg := strings.TrimPrefix(err.Error(), ErrValidation.Error()+": ")
 			httputil.WriteError(w, http.StatusBadRequest, msg)
@@ -311,7 +319,7 @@ func (h *Handler) handleVerifyEmail(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		if errors.Is(err, ErrInvalidVerifyToken) {
 			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired verification token",
-				"https://allyourbase.io/guide/auth")
+				"https://allyourbase.io/guide/authentication")
 			return
 		}
 		h.logger.Error("email verification error", "error", err)
@@ -342,12 +350,71 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	return httputil.DecodeJSON(w, r, v)
 }
 
+type magicLinkRequest struct {
+	Email string `json:"email"`
+}
+
+func (h *Handler) handleMagicLinkRequest(w http.ResponseWriter, r *http.Request) {
+	if !h.magicLinkEnabled {
+		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "magic link authentication is not enabled",
+			"https://allyourbase.io/guide/authentication#magic-link")
+		return
+	}
+
+	var req magicLinkRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Email == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "email is required")
+		return
+	}
+
+	// Always return 200 to prevent email enumeration.
+	if err := h.auth.RequestMagicLink(r.Context(), req.Email); err != nil {
+		h.logger.Error("magic link request error", "error", err)
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, map[string]string{"message": "if valid, a login link has been sent"})
+}
+
+func (h *Handler) handleMagicLinkConfirm(w http.ResponseWriter, r *http.Request) {
+	if !h.magicLinkEnabled {
+		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, "magic link authentication is not enabled",
+			"https://allyourbase.io/guide/authentication#magic-link")
+		return
+	}
+
+	var req tokenRequest
+	if !decodeBody(w, r, &req) {
+		return
+	}
+	if req.Token == "" {
+		httputil.WriteError(w, http.StatusBadRequest, "token is required")
+		return
+	}
+
+	user, accessToken, refreshToken, err := h.auth.ConfirmMagicLink(r.Context(), req.Token)
+	if err != nil {
+		if errors.Is(err, ErrInvalidMagicLinkToken) {
+			httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired magic link token",
+				"https://allyourbase.io/guide/authentication#magic-link")
+			return
+		}
+		h.logger.Error("magic link confirm error", "error", err)
+		httputil.WriteError(w, http.StatusInternalServerError, "internal error")
+		return
+	}
+
+	httputil.WriteJSON(w, http.StatusOK, authResponse{Token: accessToken, RefreshToken: refreshToken, User: user})
+}
+
 func (h *Handler) handleOAuthRedirect(w http.ResponseWriter, r *http.Request) {
 	provider := chi.URLParam(r, "provider")
 	client, ok := h.oauthClients[provider]
 	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, fmt.Sprintf("OAuth provider %q not configured", provider),
-			"https://allyourbase.io/guide/oauth")
+			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
 
@@ -384,7 +451,7 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	client, ok := h.oauthClients[provider]
 	if !ok {
 		httputil.WriteErrorWithDocURL(w, http.StatusNotFound, fmt.Sprintf("OAuth provider %q not configured", provider),
-			"https://allyourbase.io/guide/oauth")
+			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
 
@@ -402,7 +469,7 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "OAuth authentication was denied or failed",
-			"https://allyourbase.io/guide/oauth")
+			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
 
@@ -411,14 +478,14 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 	isSSEClient := h.oauthPublisher != nil && h.oauthPublisher.HasClient(state)
 	if !h.oauthStateStore.Validate(state) {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "invalid or expired OAuth state",
-			"https://allyourbase.io/guide/oauth")
+			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
 		httputil.WriteErrorWithDocURL(w, http.StatusBadRequest, "missing authorization code",
-			"https://allyourbase.io/guide/oauth")
+			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
 
@@ -435,7 +502,7 @@ func (h *Handler) handleOAuthCallback(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		httputil.WriteErrorWithDocURL(w, http.StatusBadGateway, "failed to authenticate with provider",
-			"https://allyourbase.io/guide/oauth")
+			"https://allyourbase.io/guide/authentication#oauth")
 		return
 	}
 
@@ -503,7 +570,7 @@ func oauthCallbackURL(r *http.Request, provider string) string {
 	if r.TLS != nil {
 		scheme = "https"
 	}
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto == "https" || proto == "http" {
 		scheme = proto
 	}
 	return fmt.Sprintf("%s://%s/api/auth/oauth/%s/callback", scheme, r.Host, provider)

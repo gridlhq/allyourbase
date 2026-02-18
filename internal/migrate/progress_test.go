@@ -106,7 +106,7 @@ func TestCLIReporter(t *testing.T) {
 		testutil.Contains(t, output, "[1/5]")
 		testutil.Contains(t, output, "Schema")
 		testutil.Contains(t, output, "10 items")
-		testutil.Contains(t, output, "done")
+		testutil.Contains(t, output, "✓")
 		testutil.Contains(t, output, "200ms")
 	})
 
@@ -140,7 +140,7 @@ func TestCLIReporter(t *testing.T) {
 		r.Warn("4 RLS policies need manual review")
 
 		output := buf.String()
-		testutil.Contains(t, output, "Warning:")
+		testutil.Contains(t, output, "⚠")
 		testutil.Contains(t, output, "4 RLS policies need manual review")
 	})
 }

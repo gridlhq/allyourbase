@@ -1,6 +1,7 @@
 package api
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/schema"
@@ -93,9 +94,12 @@ func TestBuildInsertSkipsUnknownColumns(t *testing.T) {
 	tbl := testTable()
 
 	data := map[string]any{"name": "Alice", "nonexistent": "val"}
-	_, args := buildInsert(tbl, data)
+	q, args := buildInsert(tbl, data)
 	// Should only have the valid column.
 	testutil.Equal(t, 1, len(args))
+	testutil.Equal(t, "Alice", args[0])
+	testutil.Contains(t, q, `"name"`)
+	testutil.True(t, !strings.Contains(q, "nonexistent"), "query should not contain unknown column")
 }
 
 func TestBuildUpdate(t *testing.T) {

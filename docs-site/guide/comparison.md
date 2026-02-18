@@ -20,11 +20,15 @@ How AllYourBase compares to PocketBase and Supabase (self-hosted).
 | **Auth** | Yes | Yes | Yes |
 | **OAuth** | Many providers | Many providers | Google, GitHub |
 | **File storage** | Yes | Yes | Yes (local + S3-compatible) |
-| **Realtime** | SSE | WebSocket (complex) | SSE |
-| **Admin dashboard** | Yes | Yes (complex) | Yes |
+| **Realtime** | SSE | WebSocket | SSE |
+| **Admin dashboard** | Yes | Yes | Yes |
 | **Database RPC** | No | Yes (PostgREST) | Yes |
 | **Horizontal scaling** | No (SQLite) | Yes | Yes (PostgreSQL) |
 | **Bulk operations** | No | Yes | Yes (batch endpoint) |
+| **Maturity** | Stable (56K+ stars) | Stable (managed + self-hosted) | New (v0.1, early adopters) |
+| **Startup time** | ~100ms | Minutes (Docker stack) | ~310ms (external PG) |
+| **Memory (idle)** | ~15MB | 3-5GB (12 containers) | ~20MB |
+| **Binary/install size** | ~40MB | 10+ Docker images | ~36MB |
 
 ::: info OAuth Provider Roadmap
 AllYourBase currently supports Google and GitHub OAuth, which cover the majority of use cases. Additional providers (Apple, Discord, Microsoft, and others) are planned for future releases. The OAuth framework is extensible — [contributions welcome](https://github.com/gridlhq/allyourbase).
@@ -32,12 +36,13 @@ AllYourBase currently supports Google and GitHub OAuth, which cover the majority
 
 ## When to use AllYourBase
 
+**PocketBase simplicity + PostgreSQL power.** AllYourBase gives you a single binary with everything included — REST API, auth, realtime, storage, admin dashboard — running on top of PostgreSQL. Deploy it on a $5 VPS with 20MB of RAM, or point it at RDS for production scale.
+
 **Choose AllYourBase if you:**
-- Want PostgreSQL without the operational complexity of Supabase
-- Need a single binary you can deploy anywhere
-- Want RLS support that PocketBase doesn't offer
-- Need horizontal scaling that SQLite can't provide
-- Want an opinionated, batteries-included setup with minimal configuration
+- Want a single-command backend that runs anywhere — your laptop, a VPS, a Raspberry Pi, an air-gapped network
+- Need PostgreSQL features (RLS, extensions, concurrent writes, horizontal scaling) without managing 10+ containers
+- Are migrating from PocketBase and hit the SQLite ceiling
+- Want your data in standard Postgres — no lock-in, take your database and go
 
 ## When to use PocketBase
 

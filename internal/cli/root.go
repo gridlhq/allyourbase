@@ -28,7 +28,7 @@ var rootCmd = &cobra.Command{
 	Long: `AllYourBase (AYB) connects to PostgreSQL, introspects the schema,
 and auto-generates a REST API with an admin dashboard. Single binary. One config file.
 
-Get started (embedded Postgres, zero config):
+Get started (managed PostgreSQL, zero config):
   ayb start
 
 Or with an external database:

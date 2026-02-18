@@ -100,9 +100,9 @@ func searchContains(s, substr string) bool {
 func sampleUsers() []auth.AdminUser {
 	now := time.Date(2026, 2, 9, 12, 0, 0, 0, time.UTC)
 	return []auth.AdminUser{
-		{ID: "u1", Email: "alice@example.com", EmailVerified: true, CreatedAt: now, UpdatedAt: now},
-		{ID: "u2", Email: "bob@example.com", EmailVerified: false, CreatedAt: now, UpdatedAt: now},
-		{ID: "u3", Email: "carol@example.com", EmailVerified: true, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000021", Email: "alice@example.com", EmailVerified: true, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000022", Email: "bob@example.com", EmailVerified: false, CreatedAt: now, UpdatedAt: now},
+		{ID: "00000000-0000-0000-0000-000000000023", Email: "carol@example.com", EmailVerified: true, CreatedAt: now, UpdatedAt: now},
 	}
 }
 
@@ -116,14 +116,14 @@ func TestListUsersSuccess(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.UserListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.TotalItems, 3)
-	testutil.Equal(t, len(result.Items), 3)
-	testutil.Equal(t, result.Items[0].Email, "alice@example.com")
+	testutil.Equal(t, 3, result.TotalItems)
+	testutil.Equal(t, 3, len(result.Items))
+	testutil.Equal(t, "alice@example.com", result.Items[0].Email)
 }
 
 func TestListUsersWithSearch(t *testing.T) {
@@ -134,13 +134,13 @@ func TestListUsersWithSearch(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.UserListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.TotalItems, 1)
-	testutil.Equal(t, result.Items[0].Email, "bob@example.com")
+	testutil.Equal(t, 1, result.TotalItems)
+	testutil.Equal(t, "bob@example.com", result.Items[0].Email)
 }
 
 func TestListUsersWithPagination(t *testing.T) {
@@ -151,16 +151,16 @@ func TestListUsersWithPagination(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.UserListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.TotalItems, 3)
-	testutil.Equal(t, len(result.Items), 2)
-	testutil.Equal(t, result.TotalPages, 2)
-	testutil.Equal(t, result.Page, 1)
-	testutil.Equal(t, result.PerPage, 2)
+	testutil.Equal(t, 3, result.TotalItems)
+	testutil.Equal(t, 2, len(result.Items))
+	testutil.Equal(t, 2, result.TotalPages)
+	testutil.Equal(t, 1, result.Page)
+	testutil.Equal(t, 2, result.PerPage)
 }
 
 func TestListUsersEmptyResult(t *testing.T) {
@@ -171,13 +171,13 @@ func TestListUsersEmptyResult(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.UserListResult
 	err := json.NewDecoder(w.Body).Decode(&result)
 	testutil.NoError(t, err)
-	testutil.Equal(t, result.TotalItems, 0)
-	testutil.Equal(t, len(result.Items), 0)
+	testutil.Equal(t, 0, result.TotalItems)
+	testutil.Equal(t, 0, len(result.Items))
 }
 
 func TestListUsersServiceError(t *testing.T) {
@@ -188,7 +188,7 @@ func TestListUsersServiceError(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusInternalServerError)
+	testutil.Equal(t, http.StatusInternalServerError, w.Code)
 	testutil.Contains(t, w.Body.String(), "failed to list users")
 }
 
@@ -202,14 +202,14 @@ func TestDeleteUserSuccess(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/users/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/u2", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/00000000-0000-0000-0000-000000000022", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusNoContent)
-	testutil.Equal(t, len(mgr.deleted), 1)
-	testutil.Equal(t, mgr.deleted[0], "u2")
-	testutil.Equal(t, len(mgr.users), 2) // u2 removed
+	testutil.Equal(t, http.StatusNoContent, w.Code)
+	testutil.Equal(t, 1, len(mgr.deleted))
+	testutil.Equal(t, "00000000-0000-0000-0000-000000000022", mgr.deleted[0])
+	testutil.Equal(t, 2, len(mgr.users)) // u2 removed
 }
 
 func TestDeleteUserNotFound(t *testing.T) {
@@ -219,11 +219,11 @@ func TestDeleteUserNotFound(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/users/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/00000000-0000-0000-0000-000000000099", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusNotFound)
+	testutil.Equal(t, http.StatusNotFound, w.Code)
 	testutil.Contains(t, w.Body.String(), "user not found")
 }
 
@@ -237,12 +237,27 @@ func TestDeleteUserServiceError(t *testing.T) {
 	r := chi.NewRouter()
 	r.Delete("/api/admin/users/{id}", handler)
 
-	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/u1", nil)
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/00000000-0000-0000-0000-000000000021", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusInternalServerError)
+	testutil.Equal(t, http.StatusInternalServerError, w.Code)
 	testutil.Contains(t, w.Body.String(), "failed to delete user")
+}
+
+func TestDeleteUserInvalidUUID(t *testing.T) {
+	mgr := &fakeUserManager{users: sampleUsers()}
+	handler := handleAdminDeleteUser(mgr)
+
+	r := chi.NewRouter()
+	r.Delete("/api/admin/users/{id}", handler)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/admin/users/not-a-uuid", nil)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
+	testutil.Contains(t, w.Body.String(), "invalid user id format")
 }
 
 func TestDeleteUserNoID(t *testing.T) {
@@ -254,7 +269,7 @@ func TestDeleteUserNoID(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusBadRequest)
+	testutil.Equal(t, http.StatusBadRequest, w.Code)
 	testutil.Contains(t, w.Body.String(), "user id is required")
 }
 
@@ -266,7 +281,7 @@ func TestListUsersResponseIncludesEmailVerified(t *testing.T) {
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
 
-	testutil.Equal(t, w.Code, http.StatusOK)
+	testutil.Equal(t, http.StatusOK, w.Code)
 
 	var result auth.UserListResult
 	err := json.NewDecoder(w.Body).Decode(&result)

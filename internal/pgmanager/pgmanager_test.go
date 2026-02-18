@@ -16,14 +16,14 @@ func TestPIDFileRoundtrip(t *testing.T) {
 
 	pid, err := readPID(path)
 	testutil.NoError(t, err)
-	testutil.Equal(t, pid, 12345)
+	testutil.Equal(t, 12345, pid)
 }
 
 func TestPIDFileReadMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nonexistent.pid")
 	pid, err := readPID(path)
 	testutil.NoError(t, err)
-	testutil.Equal(t, pid, 0)
+	testutil.Equal(t, 0, pid)
 }
 
 func TestPIDFileRemoveMissing(t *testing.T) {
@@ -68,14 +68,14 @@ func TestLogWriter(t *testing.T) {
 	lw := newLogWriter(testutil.DiscardLogger())
 	n, err := lw.Write([]byte("test output\n"))
 	testutil.NoError(t, err)
-	testutil.Equal(t, n, 12) // "test output\n" = 12 bytes
+	testutil.Equal(t, 12, n) // "test output\n" = 12 bytes
 }
 
 func TestLogWriterEmptyLine(t *testing.T) {
 	lw := newLogWriter(testutil.DiscardLogger())
 	n, err := lw.Write([]byte("\n"))
 	testutil.NoError(t, err)
-	testutil.Equal(t, n, 1)
+	testutil.Equal(t, 1, n)
 }
 
 func TestConnURLFormat(t *testing.T) {
@@ -109,7 +109,7 @@ func TestReadPostmasterPID(t *testing.T) {
 
 	pid, err := readPostmasterPID(path)
 	testutil.NoError(t, err)
-	testutil.Equal(t, pid, 42)
+	testutil.Equal(t, 42, pid)
 }
 
 func TestStopWhenNotRunning(t *testing.T) {

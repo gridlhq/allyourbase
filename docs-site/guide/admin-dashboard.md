@@ -44,10 +44,10 @@ For production deployments, always set an admin password:
 AYB_ADMIN_PASSWORD=your-secure-password ayb start
 ```
 
-Or generate a password hash:
+Or reset the auto-generated admin password:
 
 ```bash
-ayb admin create-password
+ayb admin reset-password
 ```
 
 ::: warning

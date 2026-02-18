@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh — Single-command installer for AllYourBase (AYB).
+# install.sh — Single-command installer for Allyourbase (AYB).
 #
 # Usage:
 #   curl -fsSL https://install.allyourbase.io | sh               # latest release
@@ -275,7 +275,7 @@ setup_path() {
   for rc in "$HOME/.bashrc" "$HOME/.bash_profile"; do
     if [ -f "$rc" ]; then
       if ! grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
-        if printf '\n# AllYourBase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
+        if printf '\n# Allyourbase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
           profile_updated=true
           info "Added to ${rc}"
         else
@@ -290,7 +290,7 @@ setup_path() {
   rc="$HOME/.zshrc"
   if [ -f "$rc" ]; then
     if ! grep -qF "$INSTALL_DIR" "$rc" 2>/dev/null; then
-      if printf '\n# AllYourBase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
+      if printf '\n# Allyourbase\n%s\n' "$export_line" >> "$rc" 2>/dev/null; then
         profile_updated=true
         info "Added to ${rc}"
       else
@@ -304,7 +304,7 @@ setup_path() {
   fish_line="set -gx PATH ${INSTALL_DIR} \$PATH"
   if [ -d "$(dirname "$fish_conf")" ]; then
     if ! grep -qF "$INSTALL_DIR" "$fish_conf" 2>/dev/null; then
-      if printf '\n# AllYourBase\n%s\n' "$fish_line" >> "$fish_conf" 2>/dev/null; then
+      if printf '\n# Allyourbase\n%s\n' "$fish_line" >> "$fish_conf" 2>/dev/null; then
         profile_updated=true
         info "Added to ${fish_conf}"
       else
@@ -325,7 +325,7 @@ main() {
   setup_colors
 
   printf "\n"
-  printf "  ${BOLD}AllYourBase Installer${NC}\n"
+  printf "  ${BOLD}Allyourbase Installer${NC}\n"
   printf "  ${BLUE}https://github.com/${REPO}${NC}\n"
   printf "\n"
 
@@ -342,7 +342,7 @@ main() {
   printf "  Binary:  ${INSTALL_DIR}/${BINARY_NAME}\n"
   printf "\n"
   printf "  Get started:\n"
-  printf "    ${BOLD}ayb start${NC}                     # embedded Postgres, zero config\n"
+  printf "    ${BOLD}ayb start${NC}                     # managed Postgres, zero config\n"
   printf "    ${BOLD}ayb start --database-url URL${NC}  # external Postgres\n"
 
   # Check if we need to remind about PATH

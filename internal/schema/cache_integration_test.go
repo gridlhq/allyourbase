@@ -49,7 +49,7 @@ func TestCacheHolderReload(t *testing.T) {
 
 	sc2 := ch.Get()
 	testutil.NotNil(t, sc2)
-	testutil.True(t, !sc2.BuiltAt.Before(builtAt1), "reloaded cache should have same or later builtAt")
+	testutil.True(t, sc2.BuiltAt.After(builtAt1), "reloaded cache should have a later builtAt")
 }
 
 func TestCacheHolderReady(t *testing.T) {
@@ -120,7 +120,10 @@ func TestCacheHolderConcurrentReloadAndGet(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = ch.Get()
+			sc := ch.Get()
+			if sc == nil {
+				t.Error("expected non-nil cache from concurrent Get()")
+			}
 		}()
 	}
 
@@ -129,9 +132,16 @@ func TestCacheHolderConcurrentReloadAndGet(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = ch.Reload(ctx)
+			if err := ch.Reload(ctx); err != nil {
+				t.Errorf("concurrent Reload() failed: %v", err)
+			}
 		}()
 	}
 
 	wg.Wait()
+
+	// After all concurrent operations, cache should still be valid.
+	sc := ch.Get()
+	testutil.NotNil(t, sc)
+	testutil.True(t, len(sc.Tables) >= 4, "expected tables in cache after concurrent reload")
 }

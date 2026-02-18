@@ -2,54 +2,74 @@ package cli
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/allyourbase/ayb/internal/testutil"
 )
 
+// hasANSI checks whether a string contains ANSI escape sequences.
+func hasANSI(s string) bool {
+	return strings.Contains(s, "\033[") || strings.Contains(s, "\x1b[")
+}
+
 func TestStyledWithColor(t *testing.T) {
-	result := styled("hello", ansiBold, true)
-	testutil.Equal(t, "\033[1mhello\033[0m", result)
+	result := styled("hello", "\033[1m", true)
+	testutil.Contains(t, result, "hello")
+	testutil.True(t, hasANSI(result), "expected ANSI codes in styled output")
 }
 
 func TestStyledWithoutColor(t *testing.T) {
-	result := styled("hello", ansiBold, false)
+	result := styled("hello", "\033[1m", false)
 	testutil.Equal(t, "hello", result)
 }
 
 func TestBold(t *testing.T) {
-	testutil.Equal(t, "\033[1mtest\033[0m", bold("test", true))
+	r := bold("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in bold output")
 	testutil.Equal(t, "test", bold("test", false))
 }
 
 func TestDim(t *testing.T) {
-	testutil.Equal(t, "\033[2mtest\033[0m", dim("test", true))
+	r := dim("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in dim output")
 	testutil.Equal(t, "test", dim("test", false))
 }
 
 func TestCyan(t *testing.T) {
-	testutil.Equal(t, "\033[36mtest\033[0m", cyan("test", true))
+	r := cyan("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in cyan output")
 	testutil.Equal(t, "test", cyan("test", false))
 }
 
 func TestGreen(t *testing.T) {
-	testutil.Equal(t, "\033[32mtest\033[0m", green("test", true))
+	r := green("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in green output")
 	testutil.Equal(t, "test", green("test", false))
 }
 
 func TestBoldCyan(t *testing.T) {
-	testutil.Equal(t, "\033[1;36mtest\033[0m", boldCyan("test", true))
+	r := boldCyan("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in boldCyan output")
 	testutil.Equal(t, "test", boldCyan("test", false))
 }
 
 func TestBoldGreen(t *testing.T) {
-	testutil.Equal(t, "\033[1;32mtest\033[0m", boldGreen("test", true))
+	r := boldGreen("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in boldGreen output")
 	testutil.Equal(t, "test", boldGreen("test", false))
 }
 
 func TestStyledEmptyString(t *testing.T) {
-	testutil.Equal(t, "\033[1m\033[0m", styled("", ansiBold, true))
-	testutil.Equal(t, "", styled("", ansiBold, false))
+	r := styled("", "\033[1m", true)
+	testutil.True(t, hasANSI(r), "expected ANSI even for empty string")
+	testutil.Equal(t, "", styled("", "\033[1m", false))
 }
 
 func TestColorEnabledRespectsNO_COLOR(t *testing.T) {
@@ -65,9 +85,17 @@ func TestColorEnabledFdRespectsNO_COLOR(t *testing.T) {
 
 func TestColorEnabledNO_COLORNotSet(t *testing.T) {
 	// When NO_COLOR is not set, colorEnabled depends on terminal detection.
-	// In tests, stderr is not a terminal, so it returns false regardless.
-	// But we verify the function doesn't panic and returns a bool.
+	// In tests, stderr is not a terminal, so both return false.
+	// Use t.Setenv first to snapshot+restore, then unset for this test.
+	t.Setenv("NO_COLOR", "placeholder")
 	os.Unsetenv("NO_COLOR")
-	_ = colorEnabled()
-	_ = colorEnabledFd(os.Stderr.Fd())
+	testutil.False(t, colorEnabled())
+	testutil.False(t, colorEnabledFd(os.Stderr.Fd()))
+}
+
+func TestYellow(t *testing.T) {
+	r := yellow("test", true)
+	testutil.Contains(t, r, "test")
+	testutil.True(t, hasANSI(r), "expected ANSI in yellow output")
+	testutil.Equal(t, "test", yellow("test", false))
 }

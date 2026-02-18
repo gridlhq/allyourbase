@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -207,20 +208,20 @@ func TestPrintBanner(t *testing.T) {
 	defer SetVersion("dev", "none", "unknown")
 
 	output := captureStderr(t, func() {
-		printBanner(cfg, true, "")
+		printBanner(cfg, true, "", "")
 	})
 
 	if !strings.Contains(output, "AllYourBase v0.2.0") {
 		t.Errorf("expected version in banner, got %q", output)
 	}
-	if !strings.Contains(output, "http://0.0.0.0:8090/api") {
+	if !strings.Contains(output, "http://localhost:8090/api") {
 		t.Errorf("expected API URL in banner, got %q", output)
 	}
-	if !strings.Contains(output, "http://0.0.0.0:8090/admin") {
+	if !strings.Contains(output, "http://localhost:8090/admin") {
 		t.Errorf("expected Admin URL in banner, got %q", output)
 	}
-	if !strings.Contains(output, "embedded") {
-		t.Errorf("expected 'embedded' in banner, got %q", output)
+	if !strings.Contains(output, "managed") {
+		t.Errorf("expected 'managed' in banner, got %q", output)
 	}
 	if !strings.Contains(output, "allyourbase.io") {
 		t.Errorf("expected docs link in banner, got %q", output)
@@ -243,9 +244,8 @@ func TestStopCommandNoServer(t *testing.T) {
 		}
 	})
 
-	lower := strings.ToLower(output)
-	if !strings.Contains(lower, "no ayb server") && !strings.Contains(lower, "not running") {
-		t.Fatalf("expected 'no server' message, got %q", output)
+	if !strings.Contains(output, "No AYB server is running") {
+		t.Fatalf("expected 'No AYB server is running' message, got %q", output)
 	}
 }
 
@@ -287,9 +287,8 @@ func TestStatusCommandNoServer(t *testing.T) {
 		}
 	})
 
-	lower := strings.ToLower(output)
-	if !strings.Contains(lower, "no ayb server") && !strings.Contains(lower, "not running") {
-		t.Fatalf("expected 'no server' message, got %q", output)
+	if !strings.Contains(output, "AYB server is not running") {
+		t.Fatalf("expected 'AYB server is not running' message, got %q", output)
 	}
 }
 
@@ -330,15 +329,20 @@ func TestStopCommandStalePID(t *testing.T) {
 	}
 	defer os.Remove(pidPath)
 
-	output := captureStdout(t, func() {
-		rootCmd.SetArgs([]string{"stop"})
-		if err := rootCmd.Execute(); err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+	// Use cobra's SetOut to capture output without redirecting os.Stdout,
+	// which avoids contamination from concurrent test goroutines in CI.
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	defer rootCmd.SetOut(nil) // restore default (os.Stdout)
 
-	if !strings.Contains(output, "not running") && !strings.Contains(output, "stale") {
-		t.Fatalf("expected 'not running' or 'stale' message, got %q", output)
+	rootCmd.SetArgs([]string{"stop"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "No AYB server is running") {
+		t.Fatalf("expected 'No AYB server is running' message, got %q", output)
 	}
 }
 
@@ -531,7 +535,7 @@ func TestPrintBannerExternalDB(t *testing.T) {
 	cfg.Admin.Enabled = false
 
 	output := captureStderr(t, func() {
-		printBanner(cfg, false, "")
+		printBanner(cfg, false, "", "")
 	})
 
 	if !strings.Contains(output, "external") {
@@ -1694,10 +1698,8 @@ func TestUninstallFlagDefinitions(t *testing.T) {
 func TestUninstallNothingToUninstall(t *testing.T) {
 	resetJSONFlag()
 	// Temporarily override HOME so ~/.ayb doesn't exist.
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"uninstall"})
@@ -1713,10 +1715,8 @@ func TestUninstallNothingToUninstall(t *testing.T) {
 
 func TestUninstallNothingToUninstallJSON(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	output := captureStdout(t, func() {
 		rootCmd.SetArgs([]string{"uninstall", "--json"})
@@ -1736,10 +1736,8 @@ func TestUninstallNothingToUninstallJSON(t *testing.T) {
 
 func TestUninstallRemovesBinary(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	// Create fake ~/.ayb/bin/ayb
 	binDir := filepath.Join(tmpHome, ".ayb", "bin")
@@ -1766,10 +1764,8 @@ func TestUninstallRemovesBinary(t *testing.T) {
 
 func TestUninstallRemovesCachedDirs(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	aybDir := filepath.Join(tmpHome, ".ayb")
 	// Create dirs that should be cleaned up.
@@ -1801,10 +1797,8 @@ func TestUninstallRemovesCachedDirs(t *testing.T) {
 
 func TestUninstallPreservesDataByDefault(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	aybDir := filepath.Join(tmpHome, ".ayb")
 	os.MkdirAll(filepath.Join(aybDir, "bin"), 0755)
@@ -1830,10 +1824,8 @@ func TestUninstallPreservesDataByDefault(t *testing.T) {
 
 func TestUninstallPurgeRemovesEverything(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	aybDir := filepath.Join(tmpHome, ".ayb")
 	os.MkdirAll(filepath.Join(aybDir, "bin"), 0755)
@@ -1856,10 +1848,8 @@ func TestUninstallPurgeRemovesEverything(t *testing.T) {
 
 func TestUninstallCleansShellProfile(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	aybDir := filepath.Join(tmpHome, ".ayb")
 	binDir := filepath.Join(aybDir, "bin")
@@ -1897,10 +1887,8 @@ func TestUninstallCleansShellProfile(t *testing.T) {
 
 func TestUninstallJSONOutput(t *testing.T) {
 	resetJSONFlag()
-	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
-	os.Setenv("HOME", tmpHome)
-	defer os.Setenv("HOME", origHome)
+	t.Setenv("HOME", tmpHome)
 
 	aybDir := filepath.Join(tmpHome, ".ayb")
 	os.MkdirAll(filepath.Join(aybDir, "bin"), 0755)
@@ -2297,13 +2285,7 @@ func TestTypesNoRunWithoutSubcommand(t *testing.T) {
 func TestTypesTypeScriptRequiresDatabaseURL(t *testing.T) {
 	resetJSONFlag()
 	// Unset DATABASE_URL to ensure the flag is truly required.
-	origDBURL := os.Getenv("DATABASE_URL")
-	os.Unsetenv("DATABASE_URL")
-	defer func() {
-		if origDBURL != "" {
-			os.Setenv("DATABASE_URL", origDBURL)
-		}
-	}()
+	t.Setenv("DATABASE_URL", "")
 
 	rootCmd.SetArgs([]string{"types", "typescript"})
 	err := rootCmd.Execute()

@@ -43,6 +43,10 @@ func handleAdminRevokeAPIKey(svc apiKeyManager) http.HandlerFunc {
 			httputil.WriteError(w, http.StatusBadRequest, "api key id is required")
 			return
 		}
+		if !httputil.IsValidUUID(id) {
+			httputil.WriteError(w, http.StatusBadRequest, "invalid api key id format")
+			return
+		}
 
 		err := svc.AdminRevokeAPIKey(r.Context(), id)
 		if err != nil {

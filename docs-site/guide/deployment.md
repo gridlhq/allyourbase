@@ -76,7 +76,7 @@ Create `/etc/systemd/system/ayb.service`:
 
 ```ini
 [Unit]
-Description=AllYourBase
+Description=Allyourbase
 After=network.target postgresql.service
 Wants=postgresql.service
 

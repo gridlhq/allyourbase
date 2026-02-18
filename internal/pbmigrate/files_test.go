@@ -1,6 +1,7 @@
 package pbmigrate
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -319,7 +320,7 @@ func TestMigrateFiles_NoStorageDirectory(t *testing.T) {
 	}
 
 	// Run migration (should not error)
-	err = migrator.migrateFiles(nil, []PBCollection{})
+	err = migrator.migrateFiles(context.Background(), []PBCollection{})
 	testutil.NoError(t, err)
 }
 
@@ -356,6 +357,6 @@ func TestMigrateFiles_NoCollectionsWithFiles(t *testing.T) {
 	}
 
 	// Run migration (should not error)
-	err = migrator.migrateFiles(nil, collections)
+	err = migrator.migrateFiles(context.Background(), collections)
 	testutil.NoError(t, err)
 }

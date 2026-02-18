@@ -3,13 +3,14 @@ package httputil
 import (
 	"encoding/json"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
 // MaxBodySize is the maximum allowed request body size (1MB).
 const MaxBodySize = 1 << 20
 
-const baseDocURL = "https://allyourbase.io/docs"
+const baseDocURL = "https://allyourbase.io"
 
 // DecodeJSON reads and decodes a JSON request body with size limiting.
 // Writes a 400 error and returns false on failure.
@@ -83,7 +84,14 @@ func WriteFieldError(w http.ResponseWriter, status int, message string, field, f
 }
 
 // DocURL constructs a documentation URL from a path fragment.
-// Example: DocURL("/api/filtering") -> "https://allyourbase.io/docs/api/filtering"
+// Example: DocURL("/guide/authentication") -> "https://allyourbase.io/guide/authentication"
 func DocURL(path string) string {
 	return baseDocURL + path
+}
+
+var uuidRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// IsValidUUID returns true if s is a valid UUID string (any version, hex+hyphens).
+func IsValidUUID(s string) bool {
+	return uuidRe.MatchString(s)
 }

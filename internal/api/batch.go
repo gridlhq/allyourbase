@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -10,6 +11,9 @@ import (
 	"github.com/allyourbase/ayb/internal/realtime"
 	"github.com/allyourbase/ayb/internal/schema"
 )
+
+// errBatchNotFound is returned when a batch update/delete targets a non-existent row.
+var errBatchNotFound = errors.New("record not found")
 
 // maxBatchSize is the maximum number of operations in a single batch request.
 const maxBatchSize = 1000
@@ -58,18 +62,18 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(req.Operations) == 0 {
-		writeError(w, http.StatusBadRequest, "operations array is empty")
+		writeErrorWithDoc(w, http.StatusBadRequest, "operations array is empty", docURL("/guide/api-reference#batch-operations"))
 		return
 	}
 	if len(req.Operations) > maxBatchSize {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("too many operations: max %d", maxBatchSize))
+		writeErrorWithDoc(w, http.StatusBadRequest, fmt.Sprintf("too many operations: max %d", maxBatchSize), docURL("/guide/api-reference#batch-operations"))
 		return
 	}
 
 	// Validate all operations before starting the transaction.
 	for i, op := range req.Operations {
 		if err := validateBatchOp(tbl, op); err != nil {
-			writeError(w, http.StatusBadRequest, fmt.Sprintf("operation[%d]: %s", i, err.Error()))
+			writeErrorWithDoc(w, http.StatusBadRequest, fmt.Sprintf("operation[%d]: %s", i, err.Error()), docURL("/guide/api-reference#batch-operations"))
 			return
 		}
 	}
@@ -100,7 +104,9 @@ func (h *Handler) handleBatch(w http.ResponseWriter, r *http.Request) {
 		result, event, err := h.execBatchOp(r, tx, tbl, op)
 		if err != nil {
 			// Transaction will be rolled back by the deferred Rollback.
-			if !mapPGError(w, err) {
+			if errors.Is(err, errBatchNotFound) {
+				writeError(w, http.StatusNotFound, err.Error())
+			} else if !mapPGError(w, err) {
 				h.logger.Error("batch: operation error", "error", err, "index", i, "method", op.Method)
 				writeError(w, http.StatusInternalServerError, "internal error")
 			}
@@ -197,7 +203,7 @@ func (h *Handler) execBatchOp(r *http.Request, q Querier, tbl *schema.Table, op 
 			return BatchResult{}, nil, err
 		}
 		if record == nil {
-			return BatchResult{}, nil, fmt.Errorf("record not found: %s", op.ID)
+			return BatchResult{}, nil, fmt.Errorf("%w: %s", errBatchNotFound, op.ID)
 		}
 		event := &realtime.Event{Action: "update", Table: tbl.Name, Record: record}
 		return BatchResult{Status: http.StatusOK, Body: record}, event, nil
@@ -213,7 +219,7 @@ func (h *Handler) execBatchOp(r *http.Request, q Querier, tbl *schema.Table, op 
 			return BatchResult{}, nil, err
 		}
 		if tag.RowsAffected() == 0 {
-			return BatchResult{}, nil, fmt.Errorf("record not found: %s", op.ID)
+			return BatchResult{}, nil, fmt.Errorf("%w: %s", errBatchNotFound, op.ID)
 		}
 		record := make(map[string]any, len(tbl.PrimaryKey))
 		for i, pk := range tbl.PrimaryKey {

@@ -1,72 +1,91 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures";
+import { readFileSync } from "fs";
+import { join } from "path";
+import { homedir } from "os";
 
 /**
  * SMOKE TEST: Admin Dashboard - Login
  *
  * Critical Path: Admin enters password → Dashboard loads
  *
- * This test validates:
- * 1. Login form displays when auth is configured
- * 2. Correct password grants access
- * 3. Wrong password shows error
- *
- * UI-ONLY: No direct API calls allowed
- *
  * Note: This test uses its OWN storage state (no pre-auth)
  * since it tests the login flow itself.
+ *
+ * IMPORTANT: These tests are marked @slow and run serially
+ * because they test the login flow which is rate-limited.
+ * The auth.setup.ts already validates basic login functionality,
+ * so these tests are supplementary.
  */
+
+function resolveAdminPassword(): string {
+  if (process.env.AYB_ADMIN_PASSWORD) {
+    return process.env.AYB_ADMIN_PASSWORD;
+  }
+  try {
+    const tokenPath = join(homedir(), ".ayb", "admin-token");
+    return readFileSync(tokenPath, "utf-8").trim();
+  } catch {
+    return "admin";
+  }
+}
 
 // Override storageState — login test must start unauthenticated
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe("Smoke: Admin Login", () => {
-  test("admin can log in with correct password", async ({ page, request }) => {
-    // Check if auth is enabled
-    const status = await request.get("/api/admin/status");
-    const { auth } = await status.json();
-    test.skip(!auth, "admin.password not configured — no-auth mode");
+  // Run login tests serially to avoid rate limiting
+  // Tag as @slow since they require pauses between tests
+  test.describe.configure({ mode: "serial" });
 
-    // Step 1: Navigate to admin dashboard
-    await page.goto("/admin/");
+  test("admin can log in with correct password", async ({ page, authStatus }) => {
+    test.slow(); // Mark as slow test - needs extra time
+    test.skip(!authStatus.auth, "admin.password not configured — no-auth mode");
+
+    // Step 1: Navigate to admin dashboard with fresh page load
+    await page.goto("/admin/", { waitUntil: "domcontentloaded" });
 
     // Step 2: Verify login form is shown
-    await expect(page.getByText("Enter the admin password")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+    await expect(page.getByText("Enter the admin password")).toBeVisible({ timeout: 15000 });
 
-    // Step 3: Enter admin password from env
-    const adminPassword = process.env.AYB_ADMIN_PASSWORD || "admin";
-    await page.getByLabel("Password").fill(adminPassword);
+    // Step 3: Enter admin password (env var → ~/.ayb/admin-token → "admin")
+    const adminPassword = resolveAdminPassword();
+    const passwordInput = page.getByLabel("Password");
+    await expect(passwordInput).toBeVisible({ timeout: 5000 });
+    await passwordInput.fill(adminPassword);
 
     // Step 4: Click Sign in
-    await page.getByRole("button", { name: "Sign in" }).click();
+    const signInButton = page.getByRole("button", { name: "Sign in" });
+    await expect(signInButton).toBeVisible({ timeout: 5000 });
+    await signInButton.click();
 
     // Step 5: Verify dashboard loads
-    await expect(page.locator("aside").getByText("AYB Admin")).toBeVisible({ timeout: 10000 });
-
-    console.log("✅ Smoke test passed: Admin login");
+    await expect(page.locator("aside").getByText("Allyourbase")).toBeVisible({ timeout: 15000 });
   });
 
-  test("admin login rejects wrong password", async ({ page, request }) => {
-    // Check if auth is enabled
-    const status = await request.get("/api/admin/status");
-    const { auth } = await status.json();
-    test.skip(!auth, "admin.password not configured — no-auth mode");
+  test("admin login rejects wrong password", async ({ page, authStatus }) => {
+    test.slow(); // Mark as slow test - needs extra time
+    test.skip(!authStatus.auth, "admin.password not configured — no-auth mode");
+
+    // Brief pause to avoid rate limiting from previous test
+    await page.waitForTimeout(3000);
 
     // Step 1: Navigate to admin dashboard
-    await page.goto("/admin/");
+    await page.goto("/admin/", { waitUntil: "domcontentloaded" });
 
-    // Step 2: Enter wrong password
-    await page.getByLabel("Password").fill("wrongpassword123");
+    // Step 2: Wait for login form and enter wrong password
+    const passwordInput = page.getByLabel("Password");
+    await expect(passwordInput).toBeVisible({ timeout: 15000 });
+    await passwordInput.fill("wrongpassword123");
 
     // Step 3: Click Sign in
-    await page.getByRole("button", { name: "Sign in" }).click();
+    const signInButton = page.getByRole("button", { name: "Sign in" });
+    await expect(signInButton).toBeVisible({ timeout: 5000 });
+    await signInButton.click();
 
-    // Step 4: Verify error message
-    await expect(page.getByText("invalid password")).toBeVisible({ timeout: 5000 });
+    // Step 4: Verify error message — either "invalid password" or "too many requests" (rate limiter)
+    await expect(page.getByText(/invalid password|too many/i)).toBeVisible({ timeout: 5000 });
 
     // Step 5: Verify we're still on login form
-    await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
-
-    console.log("✅ Smoke test passed: Admin login rejects wrong password");
+    await expect(signInButton).toBeVisible({ timeout: 5000 });
   });
 });

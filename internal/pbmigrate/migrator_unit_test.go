@@ -2,6 +2,7 @@ package pbmigrate
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -170,7 +171,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 			},
 		}
 
-		err = m.migrateFiles(nil, collections)
+		err = m.migrateFiles(context.Background(), collections)
 		testutil.NoError(t, err)
 
 		output := buf.String()
@@ -205,7 +206,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 			},
 		}
 
-		err = m.migrateFiles(nil, collections)
+		err = m.migrateFiles(context.Background(), collections)
 		testutil.NoError(t, err)
 
 		output := buf.String()
@@ -241,7 +242,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 			},
 		}
 
-		err = m.migrateFiles(nil, collections)
+		err = m.migrateFiles(context.Background(), collections)
 		testutil.NoError(t, err)
 
 		output := buf.String()
@@ -292,7 +293,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 			},
 		}
 
-		err = m.migrateFiles(nil, collections)
+		err = m.migrateFiles(context.Background(), collections)
 		testutil.NoError(t, err)
 
 		// Verify files were copied
@@ -337,7 +338,7 @@ func TestMigrateFiles_EdgeCases(t *testing.T) {
 			},
 		}
 
-		err = m.migrateFiles(nil, collections)
+		err = m.migrateFiles(context.Background(), collections)
 		testutil.ErrorContains(t, err, "S3 storage backend not yet implemented")
 	})
 }

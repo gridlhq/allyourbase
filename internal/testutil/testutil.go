@@ -105,6 +105,16 @@ func MapLen[K comparable, V any](t testing.TB, m map[K]V, wantLen int) {
 	}
 }
 
+// StatusCode fails the test immediately if the HTTP status code doesn't match.
+// Unlike Equal, this uses Fatalf because a wrong status code means the response
+// body has a different structure, making all subsequent assertions meaningless.
+func StatusCode(t testing.TB, want, got int) {
+	t.Helper()
+	if got != want {
+		t.Fatalf("HTTP status: got %d, want %d", got, want)
+	}
+}
+
 // Contains fails the test if s does not contain substr.
 func Contains(t testing.TB, s, substr string) {
 	t.Helper()
