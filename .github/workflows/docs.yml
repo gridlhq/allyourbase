@@ -1,12 +1,7 @@
 name: Docs
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "docs-site/**"
-      - "api-docs/**"
-      - "openapi/openapi.yaml"
+  workflow_dispatch:
 
 concurrency:
   group: pages
