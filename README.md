@@ -1,3 +1,8 @@
+> # ⚠️ This project has moved
+>
+> **Allyourbase now lives at [github.com/AllyourbaseHQ/allyourbase](https://github.com/AllyourbaseHQ/allyourbase).**
+> This repository is archived and no longer updated. Get the latest release, install script, and docs at the new home.
+
 # 👾 Allyourbase ![Beta](https://img.shields.io/badge/status-beta-orange)
 
 [![CI](https://github.com/griddlehq/allyourbase/actions/workflows/ci.yml/badge.svg)](https://github.com/griddlehq/allyourbase/actions/workflows/ci.yml)
